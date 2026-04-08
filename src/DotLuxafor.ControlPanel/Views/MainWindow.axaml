@@ -1,0 +1,323 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DotLuxafor.ControlPanel.ViewModels"
+        xmlns:models="using:DotLuxafor.ControlPanel.Models"
+        xmlns:mi="using:Material.Icons.Avalonia"
+        x:Class="DotLuxafor.ControlPanel.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Luxafor Control Panel"
+        Width="850" Height="680"
+        MinWidth="700" MinHeight="500"
+        WindowStartupLocation="CenterScreen">
+
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="16">
+
+            <!-- Header -->
+            <DockPanel>
+                <TextBlock Text="LUXAFOR CONTROL PANEL"
+                           FontSize="14" FontWeight="Bold"
+                           Foreground="{DynamicResource TextBright}"
+                           VerticalAlignment="Center" />
+                <Button Classes="danger" Content="Turn Off"
+                        Command="{Binding TurnOffCommand}"
+                        HorizontalAlignment="Right"
+                        Padding="16,6" />
+            </DockPanel>
+
+            <Separator />
+
+            <!-- DEVICE SECTION -->
+            <Border Classes="card">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="sectionHeader" Text="DEVICE" />
+
+                    <DockPanel>
+                        <!-- Status indicator -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Ellipse Width="10" Height="10" IsVisible="{Binding IsConnected}">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#98c379" />
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <Ellipse Width="10" Height="10" IsVisible="{Binding !IsConnected}">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#e06c75" />
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock Text="Connected" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SuccessGreen}"
+                                       IsVisible="{Binding IsConnected}" />
+                            <TextBlock Text="Disconnected" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource DangerRed}"
+                                       IsVisible="{Binding !IsConnected}" />
+                        </StackPanel>
+
+                        <!-- Buttons -->
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Classes="success" Content="Connect"
+                                    Command="{Binding ConnectCommand}"
+                                    Padding="12,4" FontSize="12" />
+                            <Button Content="Disconnect"
+                                    Command="{Binding DisconnectCommand}"
+                                    Padding="12,4" FontSize="12" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Device info row -->
+                    <WrapPanel Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,20,0">
+                            <TextBlock Text="Type:" FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding DeviceType}" FontSize="11" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,20,0">
+                            <TextBlock Text="Serial:" FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding SerialNumber}" FontSize="11" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,20,0">
+                            <TextBlock Text="Battery:" FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding BatteryInfo}" FontSize="11" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="RSSI:" FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding RssiInfo}" FontSize="11" />
+                        </StackPanel>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- COLOR SECTION -->
+            <Border Classes="card">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="sectionHeader" Text="COLOR" />
+
+                        <!-- RGB Sliders -->
+                        <Grid ColumnDefinitions="24,*,50" RowDefinitions="Auto,Auto,Auto" Margin="0,0,20,0">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="R" FontSize="12"
+                                       Foreground="#e06c75" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="255"
+                                    Value="{Binding Red}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Red, StringFormat='{}{0:0}'}"
+                                       FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="G" FontSize="12"
+                                       Foreground="#98c379" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255"
+                                    Value="{Binding Green}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Green, StringFormat='{}{0:0}'}"
+                                       FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="B" FontSize="12"
+                                       Foreground="#61afef" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="255"
+                                    Value="{Binding Blue}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding Blue, StringFormat='{}{0:0}'}"
+                                       FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <!-- Hex input -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Hex:" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                                       VerticalAlignment="Center" />
+                            <TextBox Text="{Binding HexColor}" Width="90" FontSize="12"
+                                     Padding="6,4" />
+                            <!-- Color preview -->
+                            <Border x:Name="ColorPreviewBorder" Width="32" Height="24" BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardBorder}" CornerRadius="0"
+                                    Background="#FF0000" />
+                        </StackPanel>
+
+                        <!-- Presets -->
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#FF0000">
+                                <Button.Background><SolidColorBrush Color="#FF0000" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#00FF00">
+                                <Button.Background><SolidColorBrush Color="#00FF00" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#0000FF">
+                                <Button.Background><SolidColorBrush Color="#0000FF" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#FFFF00">
+                                <Button.Background><SolidColorBrush Color="#FFFF00" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#00FFFF">
+                                <Button.Background><SolidColorBrush Color="#00FFFF" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#FF00FF">
+                                <Button.Background><SolidColorBrush Color="#FF00FF" /></Button.Background>
+                            </Button>
+                            <Button Classes="colorPreset" Command="{Binding ApplyPresetCommand}" CommandParameter="#FFFFFF">
+                                <Button.Background><SolidColorBrush Color="#FFFFFF" /></Button.Background>
+                            </Button>
+                        </StackPanel>
+
+                        <Button Classes="accent" Content="Set Color"
+                                Command="{Binding SetColorCommand}"
+                                HorizontalAlignment="Left" Padding="16,4" FontSize="12" />
+                    </StackPanel>
+
+                    <!-- LED Target -->
+                    <Border Grid.Column="1" Padding="16,0,0,0"
+                            BorderBrush="{DynamicResource SeparatorColor}"
+                            BorderThickness="1,0,0,0">
+                        <StackPanel Spacing="4">
+                            <TextBlock Classes="sectionHeader" Text="LED TARGET" />
+                            <RadioButton GroupName="Led" Content="All" IsChecked="True"
+                                         IsCheckedChanged="LedRadioChanged" Tag="0" FontSize="12" />
+                            <RadioButton GroupName="Led" Content="Top Side"
+                                         IsCheckedChanged="LedRadioChanged" Tag="1" FontSize="12" />
+                            <RadioButton GroupName="Led" Content="Bottom Side"
+                                         IsCheckedChanged="LedRadioChanged" Tag="2" FontSize="12" />
+                            <Separator Margin="0,4" />
+                            <WrapPanel Orientation="Horizontal">
+                                <RadioButton GroupName="Led" Content="1" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="3" FontSize="12" />
+                                <RadioButton GroupName="Led" Content="2" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="4" FontSize="12" />
+                                <RadioButton GroupName="Led" Content="3" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="5" FontSize="12" />
+                            </WrapPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <RadioButton GroupName="Led" Content="4" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="6" FontSize="12" />
+                                <RadioButton GroupName="Led" Content="5" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="7" FontSize="12" />
+                                <RadioButton GroupName="Led" Content="6" Width="44"
+                                             IsCheckedChanged="LedRadioChanged" Tag="8" FontSize="12" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- EFFECTS SECTION -->
+            <Border Classes="card">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="sectionHeader" Text="EFFECTS" />
+
+                    <!-- Fade -->
+                    <Grid ColumnDefinitions="60,60,*,50,Auto" RowDefinitions="Auto">
+                        <TextBlock Text="Fade" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Speed" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center" />
+                        <Slider Grid.Column="2" Minimum="0" Maximum="255"
+                                Value="{Binding FadeSpeed}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="3" Text="{Binding FadeSpeed, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Button Grid.Column="4" Classes="accent" Content="Fade"
+                                Command="{Binding ApplyFadeCommand}"
+                                Padding="12,4" FontSize="12" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <Separator />
+
+                    <!-- Strobe -->
+                    <Grid ColumnDefinitions="60,60,*,50,60,*,50,Auto" RowDefinitions="Auto">
+                        <TextBlock Text="Strobe" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Speed" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center" />
+                        <Slider Grid.Column="2" Minimum="0" Maximum="255"
+                                Value="{Binding StrobeSpeed}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="3" Text="{Binding StrobeSpeed, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="4" Text="Repeat" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                        <Slider Grid.Column="5" Minimum="0" Maximum="255"
+                                Value="{Binding StrobeRepeat}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="6" Text="{Binding StrobeRepeat, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Button Grid.Column="7" Classes="accent" Content="Strobe"
+                                Command="{Binding ApplyStrobeCommand}"
+                                Padding="12,4" FontSize="12" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <Separator />
+
+                    <!-- Wave -->
+                    <Grid ColumnDefinitions="60,Auto,60,*,50,60,*,50,Auto" RowDefinitions="Auto">
+                        <TextBlock Text="Wave" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding WaveTypes}"
+                                  SelectedItem="{Binding SelectedWaveType}"
+                                  FontSize="12" MinWidth="130" Margin="8,0,0,0" />
+                        <TextBlock Grid.Column="2" Text="Speed" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                        <Slider Grid.Column="3" Minimum="0" Maximum="255"
+                                Value="{Binding WaveSpeed}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="4" Text="{Binding WaveSpeed, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="5" Text="Repeat" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                        <Slider Grid.Column="6" Minimum="0" Maximum="255"
+                                Value="{Binding WaveRepeat}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="7" Text="{Binding WaveRepeat, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Button Grid.Column="8" Classes="accent" Content="Wave"
+                                Command="{Binding ApplyWaveCommand}"
+                                Padding="12,4" FontSize="12" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <Separator />
+
+                    <!-- Pattern -->
+                    <Grid ColumnDefinitions="60,Auto,60,*,50,Auto" RowDefinitions="Auto">
+                        <TextBlock Text="Pattern" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding BuiltInPatterns}"
+                                  SelectedItem="{Binding SelectedPattern}"
+                                  FontSize="12" MinWidth="140" Margin="8,0,0,0" />
+                        <TextBlock Grid.Column="2" Text="Repeat" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                        <Slider Grid.Column="3" Minimum="0" Maximum="255"
+                                Value="{Binding PatternRepeat}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock Grid.Column="4" Text="{Binding PatternRepeat, StringFormat='{}{0:0}'}"
+                                   FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Button Grid.Column="5" Classes="accent" Content="Play"
+                                Command="{Binding ApplyPatternCommand}"
+                                Padding="12,4" FontSize="12" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <!-- Note about repeat=0 -->
+                    <TextBlock Text="Repeat 0 = infinite" FontSize="10"
+                               Foreground="{DynamicResource TextMuted}" Margin="60,0,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- EVENT LOG SECTION -->
+            <Border Classes="card">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Classes="sectionHeader" Text="EVENT LOG" VerticalAlignment="Center" />
+                        <Button Content="Clear" Command="{Binding ClearLogCommand}"
+                                HorizontalAlignment="Right" Padding="12,4" FontSize="11" />
+                    </DockPanel>
+
+                    <ItemsControl ItemsSource="{Binding EventLog}" MaxHeight="150">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:EventLogEntry">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1">
+                                    <TextBlock Text="{Binding FormattedTime}" FontSize="11"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               FontFamily="Consolas,Courier New,monospace" />
+                                    <TextBlock Text="{Binding Message}" FontSize="11" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+
+</Window>
