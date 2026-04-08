@@ -15,6 +15,9 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>luxafor;hid;led;usb;bluetooth</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/vesnicancz/dotluxafor</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/vesnicancz/dotluxafor</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>

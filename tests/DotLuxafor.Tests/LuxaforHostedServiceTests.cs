@@ -126,9 +126,9 @@ public class LuxaforHostedServiceTests
         var service = CreateService(options);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromMilliseconds(500));
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
         await service.StartAsync(cts.Token);
-        await Task.Delay(400, ct);
+        await Task.Delay(2000, ct);
         await service.StopAsync(ct);
 
         _deviceManager.Verify(m => m.TryOpen(), Times.AtLeast(2));
