@@ -14,12 +14,7 @@ internal static class Program
 		{
 			return await RunAsync(args);
 		}
-		catch (ArgumentException ex)
-		{
-			Console.Error.WriteLine($"Error: {ex.Message}");
-			return 1;
-		}
-		catch (FormatException ex)
+		catch (Exception ex) when (ex is ArgumentException or FormatException)
 		{
 			Console.Error.WriteLine($"Error: {ex.Message}");
 			return 1;
@@ -36,10 +31,10 @@ internal static class Program
 		}
 	}
 
-	private static readonly HashSet<string> DeviceCommands = new(StringComparer.OrdinalIgnoreCase)
-	{
+	private static readonly HashSet<string> DeviceCommands =
+	[
 		"set-color", "fade", "strobe", "wave", "pattern", "off", "info"
-	};
+	];
 
 	private static async Task<int> RunAsync(string[] args)
 	{

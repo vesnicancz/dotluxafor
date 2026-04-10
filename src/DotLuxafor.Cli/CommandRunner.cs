@@ -94,32 +94,23 @@ internal sealed class CommandRunner
 
 	private static WaveType ParseWaveType(string value)
 	{
-		return value.ToLowerInvariant() switch
+		if (Enum.TryParse<WaveType>(value, ignoreCase: true, out var result))
 		{
-			"short" => WaveType.Short,
-			"long" => WaveType.Long,
-			"shortoverlapping" => WaveType.ShortOverlapping,
-			"longoverlapping" => WaveType.LongOverlapping,
-			"smooth" => WaveType.Smooth,
-			_ => throw new ArgumentException(
-				$"Invalid wave type: '{value}'. Use: short, long, shortoverlapping, longoverlapping, smooth.")
-		};
+			return result;
+		}
+
+		throw new ArgumentException(
+			$"Invalid wave type: '{value}'. Use: short, long, shortoverlapping, longoverlapping, smooth.");
 	}
 
 	private static BuiltInPattern ParsePattern(string value)
 	{
-		return value.ToLowerInvariant() switch
+		if (Enum.TryParse<BuiltInPattern>(value, ignoreCase: true, out var result))
 		{
-			"trafficlights" => BuiltInPattern.TrafficLights,
-			"random1" => BuiltInPattern.Random1,
-			"random2" => BuiltInPattern.Random2,
-			"random3" => BuiltInPattern.Random3,
-			"police" => BuiltInPattern.Police,
-			"random4" => BuiltInPattern.Random4,
-			"random5" => BuiltInPattern.Random5,
-			"rainbow" => BuiltInPattern.Rainbow,
-			_ => throw new ArgumentException(
-				$"Invalid pattern: '{value}'. Use: trafficlights, random1-5, police, rainbow.")
-		};
+			return result;
+		}
+
+		throw new ArgumentException(
+			$"Invalid pattern: '{value}'. Use: trafficlights, random1-5, police, rainbow.");
 	}
 }
