@@ -94,7 +94,7 @@ internal sealed class CommandRunner
 
 	private static WaveType ParseWaveType(string value)
 	{
-		if (Enum.TryParse<WaveType>(value, ignoreCase: true, out var result))
+		if (Enum.TryParse<WaveType>(value, ignoreCase: true, out var result) && Enum.IsDefined(result))
 		{
 			return result;
 		}
@@ -105,12 +105,12 @@ internal sealed class CommandRunner
 
 	private static BuiltInPattern ParsePattern(string value)
 	{
-		if (Enum.TryParse<BuiltInPattern>(value, ignoreCase: true, out var result))
+		if (Enum.TryParse<BuiltInPattern>(value, ignoreCase: true, out var result) && Enum.IsDefined(result))
 		{
 			return result;
 		}
 
 		throw new ArgumentException(
-			$"Invalid pattern: '{value}'. Use: trafficlights, random1-5, police, rainbow.");
+			$"Invalid pattern: '{value}'. Use: trafficlights, random1, random2, random3, random4, random5, police, rainbow.");
 	}
 }

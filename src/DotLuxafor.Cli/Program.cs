@@ -106,7 +106,7 @@ internal static class Program
 
 			Targets: all (default), top, bottom, led1-led6
 			Wave types: short, long, shortoverlapping, longoverlapping, smooth
-			Patterns: trafficlights, random1-5, police, rainbow
+			Patterns: trafficlights, random1, random2, random3, random4, random5, police, rainbow
 			""");
 	}
 }
