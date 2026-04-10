@@ -21,7 +21,7 @@ internal static class Program
 		}
 		catch (OperationCanceledException)
 		{
-			Console.Error.WriteLine("Error: Operation timed out.");
+			Console.Error.WriteLine("Error: Operation cancelled.");
 			return 3;
 		}
 		catch (Exception ex)
@@ -31,21 +31,21 @@ internal static class Program
 		}
 	}
 
-	private static readonly HashSet<string> DeviceCommands =
-	[
+	private static readonly HashSet<string> DeviceCommands = new(StringComparer.OrdinalIgnoreCase)
+	{
 		"set-color", "fade", "strobe", "wave", "pattern", "off", "info"
-	];
+	};
 
 	private static async Task<int> RunAsync(string[] args)
 	{
-		string command = args[0].ToLowerInvariant();
-
-		if (!DeviceCommands.Contains(command))
+		if (!DeviceCommands.Contains(args[0]))
 		{
-			Console.Error.WriteLine($"Unknown command: '{command}'");
+			Console.Error.WriteLine($"Error: Unknown command: '{args[0]}'");
 			PrintUsage();
 			return 1;
 		}
+
+		string command = args[0].ToLowerInvariant();
 
 		using ILuxaforDevice? device = LuxaforDevices.TryOpen();
 		if (device is null)
