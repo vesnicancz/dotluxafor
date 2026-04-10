@@ -12,6 +12,7 @@
     <Project Path="src/DotLuxafor/DotLuxafor.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/DotLuxafor.Cli.Tests/DotLuxafor.Cli.Tests.csproj" />
     <Project Path="tests/DotLuxafor.Tests/DotLuxafor.Tests.csproj" />
   </Folder>
 </Solution>
