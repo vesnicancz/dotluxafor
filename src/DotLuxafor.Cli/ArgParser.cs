@@ -8,9 +8,15 @@ internal sealed class ArgParser
 	{
 		for (int i = startIndex; i < args.Length; i++)
 		{
-			if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length)
+			if (args[i].StartsWith("--", StringComparison.Ordinal))
 			{
-				_options[args[i][2..]] = args[i + 1];
+				string key = args[i][2..];
+				if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+				{
+					throw new ArgumentException($"Option --{key} requires a value.");
+				}
+
+				_options[key] = args[i + 1];
 				i++;
 			}
 		}

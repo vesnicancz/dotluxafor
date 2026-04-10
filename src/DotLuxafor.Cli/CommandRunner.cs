@@ -56,21 +56,17 @@ internal sealed class CommandRunner
 
 	public async Task InfoAsync()
 	{
-		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+		await _device.RequestDeviceInfoAsync();
 
-		await _device.RequestDeviceInfoAsync(cts.Token);
-
-		await foreach (LuxaforEvent evt in _device.ObserveAsync(cts.Token))
+		if (_device.DeviceInfo is { } info)
 		{
-			if (evt is LuxaforEvent.DeviceIdentified identified)
-			{
-				Console.WriteLine($"Device type:   {identified.Info.Type}");
-				Console.WriteLine($"Serial number: {identified.Info.SerialNumber}");
-				return;
-			}
+			Console.WriteLine($"Device type:   {info.Type}");
+			Console.WriteLine($"Serial number: {info.SerialNumber}");
 		}
-
-		Console.Error.WriteLine("Device did not respond with identification info.");
+		else
+		{
+			Console.Error.WriteLine("Device did not respond with identification info.");
+		}
 	}
 
 	private static LedTarget ParseTarget(string? value)

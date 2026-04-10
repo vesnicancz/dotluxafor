@@ -36,9 +36,21 @@ internal static class Program
 		}
 	}
 
+	private static readonly HashSet<string> DeviceCommands = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"set-color", "fade", "strobe", "wave", "pattern", "off", "info"
+	};
+
 	private static async Task<int> RunAsync(string[] args)
 	{
 		string command = args[0].ToLowerInvariant();
+
+		if (!DeviceCommands.Contains(command))
+		{
+			Console.Error.WriteLine($"Unknown command: '{command}'");
+			PrintUsage();
+			return 1;
+		}
 
 		using ILuxaforDevice? device = LuxaforDevices.TryOpen();
 		if (device is null)
@@ -73,10 +85,6 @@ internal static class Program
 			case "info":
 				await runner.InfoAsync();
 				break;
-			default:
-				Console.Error.WriteLine($"Unknown command: '{command}'");
-				PrintUsage();
-				return 1;
 		}
 
 		return 0;
@@ -85,7 +93,7 @@ internal static class Program
 	private static void PrintUsage()
 	{
 		Console.WriteLine("""
-			Usage: dotluxafor <command> [options]
+			Usage: luxafor <command> [options]
 
 			Commands:
 			  set-color  --color <color> [--target <target>]
