@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>luxafor</AssemblyName>
+    <MinVerSkip>true</MinVerSkip>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotLuxafor.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotLuxafor\DotLuxafor.csproj" />
+  </ItemGroup>
+
+</Project>
