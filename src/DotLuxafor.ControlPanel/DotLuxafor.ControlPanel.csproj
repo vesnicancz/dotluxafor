@@ -14,7 +14,6 @@
     <PackageReference Include="Avalonia.Diagnostics" Condition="'$(Configuration)' == 'Debug'" />
     <PackageReference Include="Material.Icons.Avalonia" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
-    <!-- Pinned to patched version for https://github.com/tmds/Tmds.DBus/security/advisories/GHSA-xrw6-gwf8-vvr9 -->
   </ItemGroup>
 
   <ItemGroup>
