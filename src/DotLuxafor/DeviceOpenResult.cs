@@ -9,11 +9,15 @@ namespace DotLuxafor;
 /// </remarks>
 public sealed class DeviceOpenResult
 {
-	private DeviceOpenResult(DeviceOpenStatus status, ILuxaforDevice? device, Exception? error)
+	private readonly string? _description;
+
+	private DeviceOpenResult(DeviceOpenStatus status, ILuxaforDevice? device, LuxaforDeviceDescriptor? descriptor, Exception? error, string? description = null)
 	{
 		Status = status;
 		Device = device;
+		Descriptor = descriptor;
 		Error = error;
+		_description = description;
 	}
 
 	/// <summary>Gets the outcome of the attempt.</summary>
@@ -25,6 +29,12 @@ public sealed class DeviceOpenResult
 	/// </summary>
 	public ILuxaforDevice? Device { get; }
 
+	/// <summary>
+	/// Gets the device this attempt was about, or <c>null</c> when no device was found at all.
+	/// Present even when the open failed, so a caller can report or retry the specific device.
+	/// </summary>
+	public LuxaforDeviceDescriptor? Descriptor { get; }
+
 	/// <summary>Gets the exception reported by the HID stack, or <c>null</c> when there was none.</summary>
 	public Exception? Error { get; }
 
@@ -35,14 +45,26 @@ public sealed class DeviceOpenResult
 	/// Gets a human-readable explanation of the outcome, including a platform-specific hint
 	/// for failures the user can resolve (permissions, another application holding the device).
 	/// </summary>
-	public string Description => HidOpenFailure.Describe(Status, Error);
+	public string Description => _description ?? HidOpenFailure.Describe(Status, Error);
 
-	internal static DeviceOpenResult Opened(ILuxaforDevice device)
-		=> new DeviceOpenResult(DeviceOpenStatus.Opened, device, null);
+	internal static DeviceOpenResult Opened(ILuxaforDevice device, LuxaforDeviceDescriptor descriptor)
+		=> new DeviceOpenResult(DeviceOpenStatus.Opened, device, descriptor, null);
 
 	internal static DeviceOpenResult NotFound()
-		=> new DeviceOpenResult(DeviceOpenStatus.NotFound, null, null);
+		=> new DeviceOpenResult(DeviceOpenStatus.NotFound, null, null, null);
 
-	internal static DeviceOpenResult Failure(DeviceOpenStatus status, Exception? error)
-		=> new DeviceOpenResult(status, null, error);
+	/// <summary>
+	/// Reports that a specific device path is not attached, which is a different thing for the
+	/// caller to act on than "no Luxafor is attached at all".
+	/// </summary>
+	internal static DeviceOpenResult NotFound(string devicePath)
+		=> new DeviceOpenResult(
+			DeviceOpenStatus.NotFound,
+			null,
+			null,
+			null,
+			$"No Luxafor device is attached at '{devicePath}'. The path may be stale — re-read it from List().");
+
+	internal static DeviceOpenResult Failure(DeviceOpenStatus status, LuxaforDeviceDescriptor? descriptor, Exception? error)
+		=> new DeviceOpenResult(status, null, descriptor, error);
 }

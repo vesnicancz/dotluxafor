@@ -278,6 +278,127 @@ public class LuxaforColorTests
 		Assert.Equal(LuxaforColor.FromHex("#FF8800"), options.BusyColor);
 	}
 
+	#region Parse
+
+	[Theory]
+	[InlineData("red", 255, 0, 0)]
+	[InlineData("green", 0, 255, 0)]
+	[InlineData("blue", 0, 0, 255)]
+	[InlineData("yellow", 255, 255, 0)]
+	[InlineData("cyan", 0, 255, 255)]
+	[InlineData("magenta", 255, 0, 255)]
+	[InlineData("white", 255, 255, 255)]
+	[InlineData("off", 0, 0, 0)]
+	[InlineData("black", 0, 0, 0)]
+	public void Parse_NamedColor_ReturnsColor(string name, byte r, byte g, byte b)
+	{
+		Assert.Equal(new LuxaforColor(r, g, b), LuxaforColor.Parse(name));
+	}
+
+	[Theory]
+	[InlineData("Red")]
+	[InlineData("RED")]
+	[InlineData("rEd")]
+	[InlineData("  red  ")]
+	public void Parse_NamedColor_IgnoresCaseAndSurroundingWhitespace(string name)
+	{
+		Assert.Equal(LuxaforColor.Red, LuxaforColor.Parse(name));
+	}
+
+	[Theory]
+	[InlineData("#FF0000", 255, 0, 0)]
+	[InlineData("FF0000", 255, 0, 0)]
+	[InlineData("#F00", 255, 0, 0)]
+	[InlineData("0f8", 0x00, 0xFF, 0x88)]
+	[InlineData("#ABCDEF", 0xAB, 0xCD, 0xEF)]
+	public void Parse_HexColor_ReturnsColor(string hex, byte r, byte g, byte b)
+	{
+		Assert.Equal(new LuxaforColor(r, g, b), LuxaforColor.Parse(hex));
+	}
+
+	[Theory]
+	[InlineData("255,0,0", 255, 0, 0)]
+	[InlineData("0,255,0", 0, 255, 0)]
+	[InlineData("128,64,32", 128, 64, 32)]
+	[InlineData(" 128 , 64 , 32 ", 128, 64, 32)]
+	public void Parse_RgbTriple_ReturnsColor(string rgb, byte r, byte g, byte b)
+	{
+		Assert.Equal(new LuxaforColor(r, g, b), LuxaforColor.Parse(rgb));
+	}
+
+	[Theory]
+	[InlineData("invalid")]
+	[InlineData("")]
+	[InlineData("   ")]
+	[InlineData("pink")]
+	[InlineData("#GG0000")]
+	[InlineData("#FF00")]
+	[InlineData("beef")]
+	[InlineData("256,0,0")]
+	[InlineData("-1,0,0")]
+	[InlineData("1,2")]
+	[InlineData("a,b,c")]
+	[InlineData("1,2,3,4")]
+	public void Parse_Invalid_ThrowsFormatException(string input)
+	{
+		Assert.Throws<FormatException>(() => LuxaforColor.Parse(input));
+		Assert.False(LuxaforColor.TryParse(input, out _));
+	}
+
+	[Fact]
+	public void TryParse_Null_ReturnsFalse()
+	{
+		Assert.False(LuxaforColor.TryParse(null, out var color));
+		Assert.Equal(default, color);
+	}
+
+	[Fact]
+	public void Parse_ErrorMessage_ListsTheAcceptedForms()
+	{
+		var error = Assert.Throws<FormatException>(() => LuxaforColor.Parse("pink"));
+
+		Assert.Contains("pink", error.Message, StringComparison.Ordinal);
+		Assert.Contains("named color", error.Message, StringComparison.Ordinal);
+		Assert.Contains("#FF0000", error.Message, StringComparison.Ordinal);
+		Assert.Contains("255,0,0", error.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void FromHex_StaysHexOnly()
+	{
+		// The wider grammar belongs to Parse; FromHex keeps meaning exactly one thing.
+		Assert.Throws<FormatException>(() => LuxaforColor.FromHex("red"));
+		Assert.Throws<FormatException>(() => LuxaforColor.FromHex("255,0,0"));
+	}
+
+	[Fact]
+	public void IParsableParse_AcceptsEverythingParseDoes()
+	{
+		Assert.Equal(LuxaforColor.Red, LuxaforColor.Parse("red", provider: null));
+		Assert.True(LuxaforColor.TryParse("255,0,0", provider: null, out var rgb));
+		Assert.Equal(LuxaforColor.Red, rgb);
+	}
+
+	[Fact]
+	public void BindsNamedColorFromConfiguration()
+	{
+		// The named-colour table lives in the library precisely so that this binds, rather than
+		// hex being the only spelling configuration accepts.
+		var configuration = new ConfigurationBuilder()
+			.AddInMemoryCollection(new Dictionary<string, string?>
+			{
+				["Status:BusyColor"] = "red",
+			})
+			.Build();
+
+		var options = configuration.GetSection("Status").Get<ColorOptions>();
+
+		Assert.NotNull(options);
+		Assert.Equal(LuxaforColor.Red, options.BusyColor);
+	}
+
+	#endregion
+
 	private sealed class ColorOptions
 	{
 		public LuxaforColor BusyColor { get; set; }

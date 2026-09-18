@@ -1,5 +1,3 @@
-using HidSharp;
-
 namespace DotLuxafor;
 
 /// <summary>
@@ -28,13 +26,51 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
 	/// <inheritdoc />
 	public DeviceOpenResult Open()
 	{
-		var device = _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId).FirstOrDefault();
-		if (device == null)
+		var handle = GetHandles().FirstOrDefault();
+		if (handle == null)
 		{
 			return DeviceOpenResult.NotFound();
 		}
 
-		return OpenDevice(device);
+		return OpenDevice(handle);
+	}
+
+	/// <inheritdoc />
+	public DeviceOpenResult Open(string devicePath)
+	{
+		if (devicePath == null)
+		{
+			throw new ArgumentNullException(nameof(devicePath));
+		}
+
+		// Ordinal, because the path being matched is one this library handed out from the same
+		// platform API — not something a user typed.
+		var handle = GetHandles()
+			.FirstOrDefault(h => string.Equals(h.Descriptor.DevicePath, devicePath, StringComparison.Ordinal));
+
+		return handle == null ? DeviceOpenResult.NotFound(devicePath) : OpenDevice(handle);
+	}
+
+	/// <inheritdoc />
+	public DeviceOpenResult Open(LuxaforDeviceDescriptor descriptor)
+	{
+		if (descriptor == null)
+		{
+			throw new ArgumentNullException(nameof(descriptor));
+		}
+
+		return Open(descriptor.DevicePath);
+	}
+
+	/// <inheritdoc />
+	public IReadOnlyList<LuxaforDeviceDescriptor> List()
+	{
+		var descriptors = new List<LuxaforDeviceDescriptor>();
+		foreach (var handle in GetHandles())
+		{
+			descriptors.Add(handle.Descriptor);
+		}
+		return descriptors;
 	}
 
 	/// <inheritdoc />
@@ -55,34 +91,35 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
 	public IReadOnlyList<DeviceOpenResult> OpenAllResults()
 	{
 		var results = new List<DeviceOpenResult>();
-		foreach (var hidDevice in _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+		foreach (var handle in GetHandles())
 		{
-			results.Add(OpenDevice(hidDevice));
+			results.Add(OpenDevice(handle));
 		}
 		return results;
 	}
 
 	/// <summary>
 	/// Opens a single HID device, keeping the exception HidSharp would otherwise swallow.
-	/// <see cref="HidDevice.TryOpen(out HidStream)"/> reports only a bool, which is why a
-	/// device blocked by the OS was indistinguishable from no device at all.
+	/// Its <c>TryOpen</c> reports only a bool, which is why a device blocked by the OS was
+	/// indistinguishable from no device at all.
 	/// </summary>
-	private static DeviceOpenResult OpenDevice(HidDevice hidDevice)
+	private static DeviceOpenResult OpenDevice(IHidDeviceHandle handle)
 	{
-		if (hidDevice.TryOpen(new OpenConfiguration(), out DeviceStream? deviceStream, out Exception? error)
-			&& deviceStream is HidStream hidStream)
+		if (handle.TryOpen(out var stream, out var error) && stream != null)
 		{
-			return DeviceOpenResult.Opened(new LuxaforDevice(hidStream));
+			return DeviceOpenResult.Opened(new LuxaforDevice(stream, handle.Descriptor), handle.Descriptor);
 		}
 
-		deviceStream?.Dispose();
-		return DeviceOpenResult.Failure(HidOpenFailure.Classify(error), error);
+		return DeviceOpenResult.Failure(HidOpenFailure.Classify(error), handle.Descriptor, error);
 	}
+
+	private IEnumerable<IHidDeviceHandle> GetHandles()
+		=> _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId);
 
 	/// <inheritdoc />
 	public bool IsDevicePresent()
 	{
-		return _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId).Any();
+		return GetHandles().Any();
 	}
 
 	/// <inheritdoc />

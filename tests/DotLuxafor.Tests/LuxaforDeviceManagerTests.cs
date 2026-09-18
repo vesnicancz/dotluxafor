@@ -1,6 +1,5 @@
 using DotLuxafor;
 using Moq;
-using HidSharp;
 
 namespace DotLuxafor.Tests;
 
@@ -14,7 +13,7 @@ public class LuxaforDeviceManagerTests
     public void TryOpen_NoDevices_ReturnsNull()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         var result = CreateManager().TryOpen();
 
@@ -25,7 +24,7 @@ public class LuxaforDeviceManagerTests
     public void Open_NoDevices_ReturnsNotFoundWithoutError()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         var result = CreateManager().Open();
 
@@ -40,7 +39,7 @@ public class LuxaforDeviceManagerTests
     public void OpenAll_NoDevices_ReturnsEmptyList()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         var result = CreateManager().OpenAll();
 
@@ -51,7 +50,7 @@ public class LuxaforDeviceManagerTests
     public void IsDevicePresent_NoDevices_ReturnsFalse()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         Assert.False(CreateManager().IsDevicePresent());
     }
@@ -60,7 +59,7 @@ public class LuxaforDeviceManagerTests
     public void TryOpen_QueriesCorrectVendorAndProductId()
     {
         _provider.Setup(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         CreateManager().TryOpen();
 
@@ -71,7 +70,7 @@ public class LuxaforDeviceManagerTests
     public void OpenAll_QueriesCorrectVendorAndProductId()
     {
         _provider.Setup(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         CreateManager().OpenAll();
 
@@ -82,7 +81,7 @@ public class LuxaforDeviceManagerTests
     public void IsDevicePresent_QueriesCorrectVendorAndProductId()
     {
         _provider.Setup(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         CreateManager().IsDevicePresent();
 
@@ -95,7 +94,7 @@ public class LuxaforDeviceManagerTests
     public void OpenAllResults_NoDevices_ReturnsEmptyList()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         Assert.Empty(CreateManager().OpenAllResults());
     }
@@ -103,9 +102,9 @@ public class LuxaforDeviceManagerTests
     [Fact]
     public void OpenAllResults_ReportsOneOutcomePerAttachedDevice()
     {
-        // TryOpen on a bare mock fails, which is the case that OpenAll used to swallow entirely.
+        // A device that is attached but will not open is the case that OpenAll swallows entirely.
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(new[] { new Mock<HidDevice>().Object, new Mock<HidDevice>().Object });
+            .Returns(new IHidDeviceHandle[] { FakeHidDeviceHandle.Blocked("/dev/hidraw0"), FakeHidDeviceHandle.Blocked("/dev/hidraw1") });
 
         var results = CreateManager().OpenAllResults();
 
@@ -119,7 +118,7 @@ public class LuxaforDeviceManagerTests
     public void OpenAll_AndOpenAllResults_AgreeOnWhatOpened()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
-            .Returns(() => new[] { new Mock<HidDevice>().Object });
+            .Returns(() => new IHidDeviceHandle[] { FakeHidDeviceHandle.Openable("/dev/hidraw0"), FakeHidDeviceHandle.Blocked("/dev/hidraw1") });
 
         var manager = CreateManager();
 
@@ -132,11 +131,173 @@ public class LuxaforDeviceManagerTests
     public void OpenAllResults_QueriesCorrectVendorAndProductId()
     {
         _provider.Setup(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()))
-            .Returns(Enumerable.Empty<HidDevice>());
+            .Returns(Enumerable.Empty<IHidDeviceHandle>());
 
         CreateManager().OpenAllResults();
 
         _provider.Verify(p => p.GetDevices(0x04D8, 0xF372), Times.Once);
+    }
+
+    #endregion
+
+    #region List and open by path
+
+    private void Attach(params IHidDeviceHandle[] handles)
+    {
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(handles);
+    }
+
+    [Fact]
+    public void List_NoDevices_ReturnsEmptyList()
+    {
+        Attach();
+
+        Assert.Empty(CreateManager().List());
+    }
+
+    [Fact]
+    public void List_ReturnsOneDescriptorPerAttachedDevice_InDiscoveryOrder()
+    {
+        Attach(
+            FakeHidDeviceHandle.Openable("/dev/hidraw0", "LUXAFOR FLAG", "1001"),
+            FakeHidDeviceHandle.Openable("/dev/hidraw1", "LUXAFOR MUTE", "1002"));
+
+        var descriptors = CreateManager().List();
+
+        Assert.Equal(2, descriptors.Count);
+        Assert.Equal("/dev/hidraw0", descriptors[0].DevicePath);
+        Assert.Equal("LUXAFOR FLAG", descriptors[0].ProductName);
+        Assert.Equal("1001", descriptors[0].SerialNumber);
+        Assert.Equal("/dev/hidraw1", descriptors[1].DevicePath);
+    }
+
+    [Fact]
+    public void List_IncludesDevicesThatWillNotOpen()
+    {
+        // Listing needs no permission to open, so a device blocked by the OS still has to show up —
+        // otherwise a picker would silently hide the very device the user is trying to diagnose.
+        Attach(FakeHidDeviceHandle.Blocked("/dev/hidraw0"));
+
+        var descriptor = Assert.Single(CreateManager().List());
+
+        Assert.Equal("/dev/hidraw0", descriptor.DevicePath);
+    }
+
+    [Fact]
+    public void Open_ByPath_OpensTheMatchingDevice()
+    {
+        Attach(
+            FakeHidDeviceHandle.Openable("/dev/hidraw0"),
+            FakeHidDeviceHandle.Openable("/dev/hidraw1"));
+
+        using var result = CreateManager().Open("/dev/hidraw1").Device;
+
+        Assert.NotNull(result);
+        Assert.Equal("/dev/hidraw1", result.Descriptor?.DevicePath);
+    }
+
+    [Fact]
+    public void Open_ByPath_PicksTheRequestedDeviceNotTheFirstOne()
+    {
+        Attach(
+            FakeHidDeviceHandle.Blocked("/dev/hidraw0"),
+            FakeHidDeviceHandle.Openable("/dev/hidraw1"));
+
+        var result = CreateManager().Open("/dev/hidraw1");
+        using var device = result.Device;
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public void Open_ByPath_UnknownPath_ReportsNotFoundAndNamesThePath()
+    {
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0"));
+
+        var result = CreateManager().Open("/dev/hidraw9");
+
+        Assert.Equal(DeviceOpenStatus.NotFound, result.Status);
+        Assert.Null(result.Device);
+        Assert.Contains("/dev/hidraw9", result.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Open_ByPath_BlockedDevice_ReportsWhy()
+    {
+        Attach(FakeHidDeviceHandle.Blocked("/dev/hidraw0", new UnauthorizedAccessException("nope")));
+
+        var result = CreateManager().Open("/dev/hidraw0");
+
+        Assert.Equal(DeviceOpenStatus.AccessDenied, result.Status);
+        Assert.Equal("/dev/hidraw0", result.Descriptor?.DevicePath);
+    }
+
+    [Fact]
+    public void Open_ByDescriptor_IsEquivalentToOpeningItsPath()
+    {
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0", "LUXAFOR FLAG", "1001"));
+        var manager = CreateManager();
+
+        var descriptor = Assert.Single(manager.List());
+        using var device = manager.Open(descriptor).Device;
+
+        Assert.NotNull(device);
+        Assert.Equal(descriptor, device.Descriptor);
+    }
+
+    [Fact]
+    public void Open_ByPath_Null_Throws()
+    {
+        Attach();
+
+        Assert.Throws<ArgumentNullException>(() => CreateManager().Open((string)null!));
+        Assert.Throws<ArgumentNullException>(() => CreateManager().Open((LuxaforDeviceDescriptor)null!));
+    }
+
+    [Fact]
+    public void Open_Success_CarriesTheDescriptor()
+    {
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0", "LUXAFOR FLAG", "1001"));
+
+        var result = CreateManager().Open();
+        using var device = result.Device;
+
+        Assert.Equal("/dev/hidraw0", result.Descriptor?.DevicePath);
+        Assert.Equal(result.Descriptor, device?.Descriptor);
+    }
+
+    [Fact]
+    public void Open_NothingAttached_HasNoDescriptor()
+    {
+        Attach();
+
+        Assert.Null(CreateManager().Open().Descriptor);
+    }
+
+    [Fact]
+    public void OpenAll_DevicesCanBeToldApartByDescriptor()
+    {
+        // The point of the descriptor: OpenAll used to hand back a list nobody could label.
+        Attach(
+            FakeHidDeviceHandle.Openable("/dev/hidraw0", "LUXAFOR FLAG", "1001"),
+            FakeHidDeviceHandle.Openable("/dev/hidraw1", "LUXAFOR MUTE", "1002"));
+
+        var devices = CreateManager().OpenAll();
+
+        try
+        {
+            Assert.Equal(
+                new[] { "/dev/hidraw0", "/dev/hidraw1" },
+                devices.Select(d => d.Descriptor?.DevicePath));
+        }
+        finally
+        {
+            foreach (var device in devices)
+            {
+                device.Dispose();
+            }
+        }
     }
 
     #endregion
@@ -155,8 +316,8 @@ public class LuxaforDeviceManagerTests
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
             .Returns(() => _devicePresent
-                ? new[] { new Mock<HidDevice>().Object }
-                : Enumerable.Empty<HidDevice>());
+                ? new IHidDeviceHandle[] { FakeHidDeviceHandle.Openable("/dev/hidraw0") }
+                : Enumerable.Empty<IHidDeviceHandle>());
 
         _provider.Setup(p => p.SubscribeToChanges(It.IsAny<Action>()))
             .Returns((Action handler) =>
