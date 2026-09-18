@@ -6,8 +6,23 @@ namespace DotLuxafor;
 public interface ILuxaforConnection : IAsyncDisposable, IDisposable
 {
 	/// <summary>
-	/// Gets whether the device connection is still active.
+	/// Gets whether this handle is still usable: <c>false</c> once the device has been disposed or
+	/// the underlying HID stream has been closed.
 	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// This is not a liveness check. It reports the state of the handle this object holds, not the
+	/// state of the hardware: nothing here polls the USB bus, so a device whose cable was pulled out
+	/// goes on reporting <c>true</c> until something actually touches it. Read it as "we have not
+	/// closed this", not as "the device is plugged in".
+	/// </para>
+	/// <para>
+	/// Two things do notice a device that went away. A command throws
+	/// <see cref="LuxaforDeviceDisconnectedException"/>, and <see cref="ILuxaforMonitor.ObserveAsync"/>
+	/// raises <see cref="LuxaforEvent.Disconnected"/>. To ask before touching the device, call
+	/// <see cref="ILuxaforDeviceManager.IsPresent"/> with this device's <see cref="Descriptor"/>.
+	/// </para>
+	/// </remarks>
 	bool IsConnected { get; }
 
 	/// <summary>

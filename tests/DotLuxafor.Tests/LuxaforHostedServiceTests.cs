@@ -248,6 +248,123 @@ public class LuxaforHostedServiceTests
         await service.StopAsync(ct);
     }
 
+    #region Liveness
+
+    /// <summary>
+    /// A device whose cable was pulled does not close the handle, so <c>IsConnected</c> goes on
+    /// saying <c>true</c>. With monitoring off nothing else would notice, and before this the
+    /// service would sit on the dead handle forever instead of reconnecting.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_DeviceVanishedButHandleStillOpen_ReopensIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = ConnectedDeviceAt(Descriptor, out var mock);
+        _deviceManager.Setup(m => m.Open()).Returns(DeviceOpenResult.Opened(device, Descriptor));
+        _deviceManager.Setup(m => m.IsPresent(Descriptor)).Returns(false);
+
+        var service = CreateService(new LuxaforOptions
+        {
+            AutoReconnect = true,
+            AutoMonitor = false,
+            ReconnectDelay = TimeSpan.FromMilliseconds(20)
+        });
+
+        await service.StartAsync(ct);
+        await WaitUntilAsync(
+            () => _deviceManager.Invocations.Count(i => i.Method.Name == nameof(ILuxaforDeviceManager.Open) && i.Arguments.Count == 0) >= 2,
+            ct);
+
+        // The handle it gave up on is closed rather than leaked.
+        mock.Verify(d => d.Dispose(), Times.AtLeastOnce);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DeviceStillAttached_IsKept()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = ConnectedDeviceAt(Descriptor, out var mock);
+        _deviceManager.Setup(m => m.Open()).Returns(DeviceOpenResult.Opened(device, Descriptor));
+        _deviceManager.Setup(m => m.IsPresent(Descriptor)).Returns(true);
+
+        var service = CreateService(new LuxaforOptions
+        {
+            AutoReconnect = true,
+            AutoMonitor = false,
+            ReconnectDelay = TimeSpan.FromMilliseconds(20)
+        });
+
+        await service.StartAsync(ct);
+
+        // Two liveness checks means two full passes of the loop, both of which kept the device.
+        await WaitUntilAsync(
+            () => _deviceManager.Invocations.Count(i => i.Method.Name == nameof(ILuxaforDeviceManager.IsPresent)) >= 2,
+            ct);
+
+        _deviceManager.Verify(m => m.Open(), Times.Once);
+        mock.Verify(d => d.Dispose(), Times.Never);
+        Assert.Same(device, service.CurrentDevice);
+
+        await service.StopAsync(ct);
+    }
+
+    /// <summary>
+    /// A device opened outside discovery has no descriptor, so there is nothing to look for in the
+    /// device list and the handle has to be taken at its word — not dropped as if it had vanished.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_DeviceWithoutDescriptor_IsKeptWithoutAsking()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = ConnectedDevice(out var mock);
+        _deviceManager.Setup(m => m.Open()).Returns(DeviceOpenResult.Opened(device, Descriptor));
+
+        var service = CreateService(new LuxaforOptions
+        {
+            AutoReconnect = true,
+            AutoMonitor = false,
+            ReconnectDelay = TimeSpan.FromMilliseconds(20)
+        });
+
+        await service.StartAsync(ct);
+        await WaitUntilAsync(() => mock.Invocations.Count(i => i.Method.Name == "get_IsConnected") >= 2, ct);
+
+        _deviceManager.Verify(m => m.Open(), Times.Once);
+        _deviceManager.Verify(m => m.IsPresent(It.IsAny<LuxaforDeviceDescriptor>()), Times.Never);
+        Assert.Same(device, service.CurrentDevice);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DeviceVanished_IsLogged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _deviceManager.Setup(m => m.Open()).Returns(DeviceOpenResult.Opened(ConnectedDeviceAt(Descriptor, out _), Descriptor));
+        _deviceManager.Setup(m => m.IsPresent(Descriptor)).Returns(false);
+
+        var service = CreateService(new LuxaforOptions
+        {
+            AutoReconnect = true,
+            AutoMonitor = false,
+            ReconnectDelay = TimeSpan.FromMilliseconds(20)
+        });
+
+        await service.StartAsync(ct);
+
+        // Without this line the reconnect that follows looks like it came out of nowhere, and with
+        // monitoring off it is the only report of the disconnect there is.
+        await WaitUntilAsync(
+            () => _logger.Entries.Any(e => e.Level == LogLevel.Warning && e.Message.Contains("no longer attached", StringComparison.Ordinal)),
+            ct);
+
+        await service.StopAsync(ct);
+    }
+
+    #endregion
+
     #region Device selection
 
     private static readonly LuxaforDeviceDescriptor Other =
@@ -263,6 +380,12 @@ public class LuxaforHostedServiceTests
         _deviceManager
             .Setup(m => m.Open(It.IsAny<LuxaforDeviceDescriptor>()))
             .Returns((LuxaforDeviceDescriptor d) => DeviceOpenResult.Opened(ConnectedDeviceAt(d), d));
+
+        // The service rechecks that the device it holds is still attached, so a manager that says
+        // nothing is would have it drop and reopen a perfectly good device on every tick.
+        _deviceManager
+            .Setup(m => m.IsPresent(It.IsAny<LuxaforDeviceDescriptor>()))
+            .Returns((LuxaforDeviceDescriptor d) => descriptors.Contains(d));
     }
 
     /// <summary>
@@ -270,8 +393,11 @@ public class LuxaforHostedServiceTests
     /// the service which of several devices it settled on.
     /// </summary>
     private static ILuxaforDevice ConnectedDeviceAt(LuxaforDeviceDescriptor descriptor)
+        => ConnectedDeviceAt(descriptor, out _);
+
+    private static ILuxaforDevice ConnectedDeviceAt(LuxaforDeviceDescriptor descriptor, out Mock<ILuxaforDevice> mock)
     {
-        var device = ConnectedDevice(out var mock);
+        var device = ConnectedDevice(out mock);
         mock.Setup(d => d.Descriptor).Returns(descriptor);
         return device;
     }

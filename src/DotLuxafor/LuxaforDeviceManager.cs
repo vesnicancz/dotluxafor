@@ -123,6 +123,21 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
 	}
 
 	/// <inheritdoc />
+	public bool IsPresent(LuxaforDeviceDescriptor descriptor)
+	{
+		if (descriptor == null)
+		{
+			throw new ArgumentNullException(nameof(descriptor));
+		}
+
+		// Matched on the path rather than the whole descriptor: the product name and serial number
+		// are read from USB string descriptors and come back null on a platform that will not hand
+		// them over without permission, so the same device can enumerate unequal twice.
+		return GetHandles()
+			.Any(h => string.Equals(h.Descriptor.DevicePath, descriptor.DevicePath, StringComparison.Ordinal));
+	}
+
+	/// <inheritdoc />
 	public async Task WaitForDeviceAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();

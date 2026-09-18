@@ -145,7 +145,7 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 			try
 			{
 				var device = CurrentDevice;
-				if (device == null || !device.IsConnected)
+				if (device == null || !IsStillUsable(device))
 				{
 					await CleanupDeviceAsync().ConfigureAwait(false);
 					var openResult = OpenConfiguredDevice(out var failure);
@@ -185,6 +185,37 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 				await Task.Delay(_options.ReconnectDelay, stoppingToken).ConfigureAwait(false);
 			}
 		}
+	}
+
+	/// <summary>
+	/// Whether the device we are holding is still worth keeping.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="ILuxaforConnection.IsConnected"/> alone is not enough to decide this. It says only
+	/// that nobody closed the handle, and a device that was unplugged does not close it — so with
+	/// <see cref="LuxaforOptions.AutoMonitor"/> off, nothing here would ever notice the device was
+	/// gone and the service would sit on a dead handle forever. Asking the manager what is attached
+	/// costs a device enumeration, which is affordable once per reconnect tick.
+	/// </remarks>
+	private bool IsStillUsable(ILuxaforDevice device)
+	{
+		if (!device.IsConnected)
+		{
+			return false;
+		}
+
+		// A device opened outside discovery has no descriptor to look for, so there is nothing to
+		// check it against and the handle is taken at its word.
+		var descriptor = device.Descriptor;
+		if (descriptor == null || _deviceManager.IsPresent(descriptor))
+		{
+			return true;
+		}
+
+		// Worth a line of its own: with monitoring off this is the only place a disconnect is ever
+		// reported, and without it the reopen below looks like a reconnect out of nowhere.
+		_logger.LogWarning("Luxafor device {Device} is no longer attached.", descriptor);
+		return false;
 	}
 
 	/// <summary>

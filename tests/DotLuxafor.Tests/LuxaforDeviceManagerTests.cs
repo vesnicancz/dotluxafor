@@ -400,6 +400,54 @@ public class LuxaforDeviceManagerTests
 
     #endregion
 
+    #region IsPresent
+
+    [Fact]
+    public void IsPresent_DeviceStillAttached_ReturnsTrue()
+    {
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0"), FakeHidDeviceHandle.Openable("/dev/hidraw1"));
+
+        Assert.True(CreateManager().IsPresent(new LuxaforDeviceDescriptor("/dev/hidraw1", null, null)));
+    }
+
+    [Fact]
+    public void IsPresent_DeviceUnplugged_ReturnsFalse()
+    {
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0"));
+
+        // The whole point of the method: the caller is holding a handle to hidraw1 that still looks
+        // fine to it, and only the enumeration can say the device behind it is gone.
+        Assert.False(CreateManager().IsPresent(new LuxaforDeviceDescriptor("/dev/hidraw1", null, null)));
+    }
+
+    [Fact]
+    public void IsPresent_MatchesOnPathAlone()
+    {
+        // The name and serial come from USB string descriptors the platform may refuse to hand
+        // over, so the same device can enumerate with them null; comparing whole descriptors would
+        // then report a device that is plainly still there as gone.
+        Attach(FakeHidDeviceHandle.Openable("/dev/hidraw0"));
+
+        Assert.True(CreateManager().IsPresent(new LuxaforDeviceDescriptor("/dev/hidraw0", "LUXAFOR FLAG", "1001")));
+    }
+
+    [Fact]
+    public void IsPresent_DeviceThatWillNotOpen_ReturnsTrue()
+    {
+        // Attached but blocked by the OS is still attached — reopening is what fails, not presence.
+        Attach(FakeHidDeviceHandle.Blocked("/dev/hidraw0"));
+
+        Assert.True(CreateManager().IsPresent(new LuxaforDeviceDescriptor("/dev/hidraw0", null, null)));
+    }
+
+    [Fact]
+    public void IsPresent_NullDescriptor_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => CreateManager().IsPresent(null!));
+    }
+
+    #endregion
+
     [Fact]
     public void DefaultConstructor_DoesNotThrow()
     {

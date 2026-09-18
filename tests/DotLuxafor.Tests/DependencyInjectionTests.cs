@@ -33,6 +33,37 @@ public class DependencyInjectionTests
 	}
 
 	[Fact]
+	public void AddLuxafor_RegistersDeviceOpener()
+	{
+		var services = new ServiceCollection();
+
+		services.AddLuxafor();
+		var provider = services.BuildServiceProvider();
+
+		var opener = provider.GetService<ILuxaforDeviceOpener>();
+
+		// The narrow face of the same singleton, not a second manager of its own.
+		Assert.NotNull(opener);
+		Assert.Same(provider.GetRequiredService<ILuxaforDeviceManager>(), opener);
+	}
+
+	[Fact]
+	public void AddLuxafor_WithCustomDeviceManager_OpenerIsThatManager()
+	{
+		var services = new ServiceCollection();
+		var mockManager = new Mock<ILuxaforDeviceManager>();
+
+		services.AddSingleton(mockManager.Object);
+		services.AddLuxafor();
+
+		var provider = services.BuildServiceProvider();
+
+		// A substituted manager has to win for the opener too, or a test double would be bypassed
+		// by whichever of the two faces the code under test happens to ask for.
+		Assert.Same(mockManager.Object, provider.GetService<ILuxaforDeviceOpener>());
+	}
+
+	[Fact]
 	public void AddLuxafor_WithOptions_ConfiguresOptions()
 	{
 		var services = new ServiceCollection();
