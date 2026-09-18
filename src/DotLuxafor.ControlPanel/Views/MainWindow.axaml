@@ -8,9 +8,13 @@
         Title="Luxafor Control Panel"
         Width="850" Height="680"
         MinWidth="700" MinHeight="500"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="32"
+        WindowDecorationsTheme="{StaticResource OneDarkWindowDecorations}">
 
-    <ScrollViewer>
+    <!-- The margin is zero where the OS draws the decorations itself. -->
+    <ScrollViewer Margin="{Binding $parent[Window].WindowDecorationMargin}">
         <StackPanel Margin="20" Spacing="16">
 
             <!-- Header -->

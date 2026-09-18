@@ -1,0 +1,159 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Client-side window decorations (Avalonia 12) styled to the One Dark palette. -->
+
+    <ControlTheme x:Key="OneDarkCaptionButton" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Width" Value="46" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="(WindowDecorationProperties.ElementRole)" Value="DecorationsElement" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Bg" Background="{TemplateBinding Background}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource CardBackground}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource CardBorder}" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="OneDarkCloseButton" TargetType="Button" BasedOn="{StaticResource OneDarkCaptionButton}">
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource DangerRed}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource DangerRedPressed}" />
+        </Style>
+        <Style Selector="^:pointerover">
+            <Setter Property="Foreground" Value="#282c34" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="OneDarkWindowDecorations" TargetType="WindowDrawnDecorations">
+        <Setter Property="DefaultTitleBarHeight" Value="32" />
+        <Setter Property="DefaultFrameThickness" Value="1" />
+        <!-- No drop shadow: the window background is opaque, so a shadow drawn in the
+             underlay would never be visible and would only reserve empty margin. -->
+        <Setter Property="DefaultShadowThickness" Value="0" />
+        <Setter Property="Template">
+            <WindowDrawnDecorationsTemplate>
+                <WindowDrawnDecorationsContent>
+
+                    <WindowDrawnDecorationsContent.Underlay>
+                        <Panel x:Name="PART_UnderlayWrapper">
+                            <Border x:Name="PART_WindowBorder"
+                                    Background="Transparent"
+                                    BorderThickness="{TemplateBinding FrameThickness}"
+                                    BorderBrush="{DynamicResource CardBorder}"
+                                    IsHitTestVisible="False" />
+                            <Border x:Name="PART_TitleBar" VerticalAlignment="Top"
+                                    Height="{TemplateBinding TitleBarHeight}"
+                                    Background="{DynamicResource SidebarBackground}"
+                                    BorderBrush="{DynamicResource CardBorder}"
+                                    BorderThickness="0,0,0,1"
+                                    IsVisible="{TemplateBinding HasTitleBar}"
+                                    WindowDecorationProperties.ElementRole="TitleBar" />
+                        </Panel>
+                    </WindowDrawnDecorationsContent.Underlay>
+
+                    <WindowDrawnDecorationsContent.Overlay>
+                        <Panel x:Name="PART_OverlayWrapper">
+                            <!-- The title strip lives in the overlay: the underlay sits behind the
+                                 window content, which is opaque, so a background there never shows. -->
+                            <Border x:Name="PART_TitleTextPanel" VerticalAlignment="Top"
+                                    Height="{TemplateBinding TitleBarHeight}"
+                                    Background="{DynamicResource SidebarBackground}"
+                                    BorderBrush="{DynamicResource CardBorder}"
+                                    BorderThickness="0,0,0,1"
+                                    IsHitTestVisible="False"
+                                    IsVisible="{TemplateBinding HasTitleBar}">
+                                <TextBlock Text="{TemplateBinding Title}"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Left"
+                                           Margin="12,0,0,0"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextMuted}" />
+                            </Border>
+                            <StackPanel x:Name="PART_OverlayPanel"
+                                        VerticalAlignment="Top"
+                                        HorizontalAlignment="Right"
+                                        Height="{TemplateBinding TitleBarHeight}"
+                                        IsVisible="{TemplateBinding HasTitleBar}"
+                                        Orientation="Horizontal">
+                                <Button x:Name="PART_MinimizeButton"
+                                        Theme="{StaticResource OneDarkCaptionButton}"
+                                        WindowDecorationProperties.ElementRole="MinimizeButton">
+                                    <Path Stretch="Uniform" Width="10"
+                                          Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M2048 1229v-205h-2048v205h2048z" />
+                                </Button>
+                                <Button x:Name="PART_MaximizeButton"
+                                        Theme="{StaticResource OneDarkCaptionButton}"
+                                        WindowDecorationProperties.ElementRole="MaximizeButton">
+                                    <Path x:Name="RestoreButtonPath" Stretch="Uniform" Width="10"
+                                          Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M2048 2048v-2048h-2048v2048h2048zM1843 1843h-1638v-1638h1638v1638z" />
+                                </Button>
+                                <Button x:Name="PART_CloseButton"
+                                        Theme="{StaticResource OneDarkCloseButton}"
+                                        WindowDecorationProperties.ElementRole="CloseButton">
+                                    <Path Stretch="Uniform" Width="10"
+                                          Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M1169 1024l879 -879l-145 -145l-879 879l-879 -879l-145 145l879 879l-879 879l145 145l879 -879l879 879l145 -145z" />
+                                </Button>
+                            </StackPanel>
+                        </Panel>
+                    </WindowDrawnDecorationsContent.Overlay>
+
+                </WindowDrawnDecorationsContent>
+            </WindowDrawnDecorationsTemplate>
+        </Setter>
+
+        <Style Selector="^:has-shadow /template/ Panel#PART_UnderlayWrapper">
+            <Setter Property="Margin" Value="{TemplateBinding ShadowThickness}" />
+        </Style>
+        <Style Selector="^:has-shadow /template/ Border#PART_WindowBorder">
+            <Setter Property="BoxShadow" Value="0 2 10 2 #80000000" />
+        </Style>
+        <Style Selector="^:has-shadow /template/ Panel#PART_OverlayWrapper">
+            <Setter Property="Margin" Value="{TemplateBinding ShadowThickness}" />
+        </Style>
+
+        <Style Selector="^:has-border /template/ Border#PART_TitleTextPanel">
+            <Setter Property="Margin" Value="1,1,1,0" />
+        </Style>
+        <Style Selector="^:has-border /template/ Border#PART_TitleBar">
+            <Setter Property="Margin" Value="1,1,1,0" />
+        </Style>
+        <Style Selector="^:has-border /template/ StackPanel#PART_OverlayPanel">
+            <Setter Property="Margin" Value="0,1,1,0" />
+        </Style>
+
+        <Style Selector="^:maximized /template/ Path#RestoreButtonPath">
+            <Setter Property="Data" Value="M2048 410h-410v-410h-1638v1638h410v410h1638v-1638zM1434 1434h-1229v-1229h1229v1229zM1843 1843h-1229v-205h1024v-1024h205v1229z" />
+        </Style>
+
+        <Style Selector="^ /template/ Button:disabled">
+            <Setter Property="Opacity" Value="0.2" />
+        </Style>
+        <Style Selector="^:not(:has-minimize) /template/ Button#PART_MinimizeButton">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="^:not(:has-maximize) /template/ Button#PART_MaximizeButton">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>
