@@ -65,6 +65,23 @@ public sealed class DeviceOpenResult
 			null,
 			$"No Luxafor device is attached at '{devicePath}'. The path may be stale — re-read it from List().");
 
+	/// <summary>
+	/// Reports that Luxafor devices are attached but none of them is the one that was asked for.
+	/// </summary>
+	/// <remarks>
+	/// Different from "no Luxafor is attached at all" in the way that matters to a caller: waiting
+	/// for a device to be plugged in will not help, because the wrong ones are already here. The
+	/// attached devices are named in the description so a mistyped selector can be fixed from the
+	/// log alone.
+	/// </remarks>
+	internal static DeviceOpenResult NotMatched(string criteria, IReadOnlyList<LuxaforDeviceDescriptor> attached)
+		=> new DeviceOpenResult(
+			DeviceOpenStatus.NotFound,
+			null,
+			null,
+			null,
+			$"No attached Luxafor device matches {criteria}. Attached: {string.Join(", ", attached)}.");
+
 	internal static DeviceOpenResult Failure(DeviceOpenStatus status, LuxaforDeviceDescriptor? descriptor, Exception? error)
 		=> new DeviceOpenResult(status, null, descriptor, error);
 }

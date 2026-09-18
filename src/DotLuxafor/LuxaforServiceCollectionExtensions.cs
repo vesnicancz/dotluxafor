@@ -71,6 +71,43 @@ internal sealed class LuxaforOptionsValidator : IValidateOptions<LuxaforOptions>
 			return ValidateOptionsResult.Fail($"{nameof(LuxaforOptions.ReconnectDelay)} must be positive. Got: {options.ReconnectDelay}");
 		}
 
+		// Rejected rather than resolved by precedence: silently ignoring one of two configured
+		// selectors is the kind of thing that costs an afternoon.
+		var selectors = new List<string>(3);
+		if (options.DevicePath != null)
+		{
+			selectors.Add(nameof(LuxaforOptions.DevicePath));
+		}
+
+		if (options.SerialNumber != null)
+		{
+			selectors.Add(nameof(LuxaforOptions.SerialNumber));
+		}
+
+		if (options.SelectDevice != null)
+		{
+			selectors.Add(nameof(LuxaforOptions.SelectDevice));
+		}
+
+		if (selectors.Count > 1)
+		{
+			return ValidateOptionsResult.Fail(
+				$"Only one device selector may be set, but {string.Join(" and ", selectors)} are. "
+				+ "Leave all of them unset to open whichever device the platform enumerates first.");
+		}
+
+		// An empty string is what an unset configuration key binds to, and it matches no device,
+		// so it would otherwise look like "the device is never plugged in".
+		if (options.DevicePath != null && options.DevicePath.Length == 0)
+		{
+			return ValidateOptionsResult.Fail($"{nameof(LuxaforOptions.DevicePath)} is empty. Leave it null to open the first device found.");
+		}
+
+		if (options.SerialNumber != null && options.SerialNumber.Length == 0)
+		{
+			return ValidateOptionsResult.Fail($"{nameof(LuxaforOptions.SerialNumber)} is empty. Leave it null to open the first device found.");
+		}
+
 		return ValidateOptionsResult.Success;
 	}
 }

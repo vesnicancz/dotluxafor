@@ -248,6 +248,300 @@ public class LuxaforHostedServiceTests
         await service.StopAsync(ct);
     }
 
+    #region Device selection
+
+    private static readonly LuxaforDeviceDescriptor Other =
+        new LuxaforDeviceDescriptor("/dev/hidraw1", "LUXAFOR FLAG", "99");
+
+    /// <summary>
+    /// Lets the manager enumerate the given devices and open any of them, so a test only has to
+    /// say what is attached and then check which one the service picked.
+    /// </summary>
+    private void Attach(params LuxaforDeviceDescriptor[] descriptors)
+    {
+        _deviceManager.Setup(m => m.List()).Returns(descriptors);
+        _deviceManager
+            .Setup(m => m.Open(It.IsAny<LuxaforDeviceDescriptor>()))
+            .Returns((LuxaforDeviceDescriptor d) => DeviceOpenResult.Opened(ConnectedDeviceAt(d), d));
+    }
+
+    /// <summary>
+    /// A connected device that reports the descriptor it was opened as, which is how a test asks
+    /// the service which of several devices it settled on.
+    /// </summary>
+    private static ILuxaforDevice ConnectedDeviceAt(LuxaforDeviceDescriptor descriptor)
+    {
+        var device = ConnectedDevice(out var mock);
+        mock.Setup(d => d.Descriptor).Returns(descriptor);
+        return device;
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithNoSelector_OpensWhicheverComesFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(ConnectedDevice(out _)));
+        var service = CreateService(new LuxaforOptions { AutoReconnect = false });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        // The unfiltered path stays as it was: one call, no listing.
+        _deviceManager.Verify(m => m.Open(), Times.Once);
+        _deviceManager.Verify(m => m.List(), Times.Never);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithSerialNumber_OpensThatDevice()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Attach(Other, Descriptor);
+        var service = CreateService(new LuxaforOptions { SerialNumber = "42" });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        Assert.Equal(Descriptor, service.CurrentDevice?.Descriptor);
+        _deviceManager.Verify(m => m.Open(), Times.Never);
+
+        await service.StopAsync(ct);
+    }
+
+    /// <summary>
+    /// A serial number gets copied off a label or out of a log, where its case is nobody's choice.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WithSerialNumber_MatchesIgnoringCase()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var hex = new LuxaforDeviceDescriptor("/dev/hidraw2", "LUXAFOR FLAG", "00ab12CD");
+        Attach(hex);
+        var service = CreateService(new LuxaforOptions { SerialNumber = "00AB12cd" });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        Assert.Equal(hex, service.CurrentDevice?.Descriptor);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithDevicePath_OpensThatDevice()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Attach(Other, Descriptor);
+        var service = CreateService(new LuxaforOptions { DevicePath = Descriptor.DevicePath });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        Assert.Equal(Descriptor, service.CurrentDevice?.Descriptor);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithSelectDevice_OpensWhateverTheCallbackPicks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Attach(Descriptor, Other);
+        var service = CreateService(new LuxaforOptions
+        {
+            SelectDevice = devices => devices.LastOrDefault()
+        });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        Assert.Equal(Other, service.CurrentDevice?.Descriptor);
+
+        await service.StopAsync(ct);
+    }
+
+    /// <summary>
+    /// The callback exists to choose among real devices, so it is spared the empty case — which is
+    /// also the case the service handles itself, by waiting for something to be plugged in.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WithSelectDevice_IsNotCalledWhenNothingIsAttached()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var called = false;
+        _deviceManager.Setup(m => m.List()).Returns(Array.Empty<LuxaforDeviceDescriptor>());
+        var service = CreateService(new LuxaforOptions
+        {
+            SelectDevice = _ =>
+            {
+                called = true;
+                return null;
+            }
+        });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        Assert.False(called);
+
+        await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenNoAttachedDeviceMatches_DoesNotOpenAnything()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Attach(Other);
+        var service = CreateService(new LuxaforOptions { SerialNumber = "42" });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+
+        // Falling back to the wrong device would be worse than showing nothing at all.
+        Assert.Null(service.CurrentDevice);
+        _deviceManager.Verify(m => m.Open(It.IsAny<LuxaforDeviceDescriptor>()), Times.Never);
+        _deviceManager.Verify(m => m.Open(), Times.Never);
+
+        await service.StopAsync(ct);
+    }
+
+    /// <summary>
+    /// The wrong device being attached is not the same as nothing being attached: waiting for an
+    /// arrival would return at once, because the devices are already here, and spin the loop.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenNoAttachedDeviceMatches_DoesNotWaitForArrival()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var listCount = 0;
+        _deviceManager.Setup(m => m.List()).Returns(() =>
+        {
+            Interlocked.Increment(ref listCount);
+            return new[] { Other };
+        });
+
+        var service = CreateService(new LuxaforOptions
+        {
+            SerialNumber = "42",
+            AutoReconnect = true,
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
+        });
+
+        await service.StartAsync(ct);
+        await WaitUntilAsync(() => Volatile.Read(ref listCount) >= 3, ct);
+        await service.StopAsync(ct);
+
+        _deviceManager.Verify(m => m.WaitForDeviceAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Nothing attached is still the ordinary case a hotplug wait is for, selector or not.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WithSelectorAndNothingAttached_WaitsForArrival()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var waits = 0;
+        _deviceManager.Setup(m => m.List()).Returns(Array.Empty<LuxaforDeviceDescriptor>());
+        _deviceManager
+            .Setup(m => m.WaitForDeviceAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken token) =>
+            {
+                Interlocked.Increment(ref waits);
+                return Task.Delay(System.Threading.Timeout.Infinite, token);
+            });
+
+        var service = CreateService(new LuxaforOptions
+        {
+            SerialNumber = "42",
+            AutoReconnect = true,
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
+        });
+
+        await service.StartAsync(ct);
+        await WaitUntilAsync(() => Volatile.Read(ref waits) >= 2, ct);
+        await service.StopAsync(ct);
+    }
+
+    /// <summary>
+    /// A selector that matches nothing is nearly always a typo in the configuration, so it must not
+    /// be buried at Debug the way "nobody has plugged anything in yet" is. The message names what
+    /// is attached, which is what makes the typo fixable from the log alone.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenNoAttachedDeviceMatches_WarnsAndNamesTheAttachedDevices()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Attach(Other);
+        var service = CreateService(new LuxaforOptions { SerialNumber = "42" });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+        await service.StopAsync(ct);
+
+        var warning = Assert.Single(_logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("serial number '42'", warning.Message);
+        Assert.Contains(Other.ToString(), warning.Message);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithNothingAttached_StaysAtDebug()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _deviceManager.Setup(m => m.List()).Returns(Array.Empty<LuxaforDeviceDescriptor>());
+        var service = CreateService(new LuxaforOptions { SerialNumber = "42" });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+        await service.StopAsync(ct);
+
+        Assert.DoesNotContain(_logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains(_logger.Entries, e => e.Level == LogLevel.Debug);
+    }
+
+    /// <summary>
+    /// A device that arrives after the wrong one was rejected has to be picked up — the earlier
+    /// mismatch must not be remembered as a decision.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenTheMatchingDeviceArrivesLater_ConnectsToIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var attached = new[] { Other };
+        var listCount = 0;
+        _deviceManager.Setup(m => m.List()).Returns(() =>
+        {
+            Interlocked.Increment(ref listCount);
+            return Volatile.Read(ref attached);
+        });
+        _deviceManager
+            .Setup(m => m.Open(It.IsAny<LuxaforDeviceDescriptor>()))
+            .Returns((LuxaforDeviceDescriptor d) => DeviceOpenResult.Opened(ConnectedDeviceAt(d), d));
+
+        var service = CreateService(new LuxaforOptions
+        {
+            SerialNumber = "42",
+            AutoReconnect = true,
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
+        });
+
+        await service.StartAsync(ct);
+
+        // Let it reject the wrong device a couple of times before the right one shows up.
+        await WaitUntilAsync(() => Volatile.Read(ref listCount) >= 2, ct);
+        Assert.Null(service.CurrentDevice);
+
+        Volatile.Write(ref attached, new[] { Other, Descriptor });
+        await WaitUntilAsync(() => service.CurrentDevice != null, ct);
+
+        Assert.Equal(Descriptor, service.CurrentDevice?.Descriptor);
+
+        await service.StopAsync(ct);
+    }
+
+    #endregion
+
     [Fact]
     public async Task ExecuteAsync_WhenDeviceIsPresentButUnopenable_DoesNotWaitForArrival()
     {

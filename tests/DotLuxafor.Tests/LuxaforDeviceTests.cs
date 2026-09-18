@@ -211,14 +211,83 @@ public class LuxaforDeviceTests
     }
 
     [Fact]
-    public async Task SendReportAsync_WhenStreamCannotWrite_ThrowsInvalidOperationException()
+    public async Task SendReportAsync_WhenStreamCannotWrite_ThrowsDisconnected()
     {
         var ct = TestContext.Current.CancellationToken;
         _stream.Setup(s => s.CanWrite).Returns(false);
         var device = new LuxaforDevice(_stream.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<LuxaforDeviceDisconnectedException>(() =>
             device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// The type callers were told to catch before <see cref="LuxaforDeviceDisconnectedException"/>
+    /// existed, so an application written against the old behaviour keeps working.
+    /// </summary>
+    [Fact]
+    public async Task SendReportAsync_DisconnectedIsStillAnInvalidOperationException()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stream.Setup(s => s.CanWrite).Returns(false);
+        var device = new LuxaforDevice(_stream.Object);
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// A device unplugged mid-write surfaces from the HID stack as an IOException. It means the
+    /// same thing as a device that was already gone, so it is reported the same way.
+    /// </summary>
+    [Fact]
+    public async Task SendReportAsync_WhenTheWriteFailsWithIOException_ThrowsDisconnected()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ioError = new IOException("The device was disconnected.");
+        _stream.Setup(s => s.CanWrite).Returns(true);
+        _stream.Setup(s => s.Write(It.IsAny<byte[]>())).Throws(ioError);
+        var device = new LuxaforDevice(_stream.Object);
+
+        var ex = await Assert.ThrowsAsync<LuxaforDeviceDisconnectedException>(() =>
+            device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+
+        Assert.Same(ioError, ex.InnerException);
+    }
+
+    /// <summary>
+    /// Only a vanished device is translated. Anything else the HID stack reports is a real failure
+    /// and has to reach the caller as itself.
+    /// </summary>
+    [Fact]
+    public async Task SendReportAsync_WhenTheWriteFailsForAnotherReason_DoesNotTranslate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stream.Setup(s => s.CanWrite).Returns(true);
+        _stream.Setup(s => s.Write(It.IsAny<byte[]>())).Throws(new TimeoutException("The write timed out."));
+        var device = new LuxaforDevice(_stream.Object);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// The descriptor is what tells two devices apart, so the exception has to carry the one whose
+    /// device went away — that is how a caller knows which device to reopen.
+    /// </summary>
+    [Fact]
+    public async Task SendReportAsync_DisconnectedNamesTheDevice()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var descriptor = new LuxaforDeviceDescriptor("/dev/hidraw0", "LUXAFOR FLAG", "1001");
+        _stream.Setup(s => s.CanWrite).Returns(false);
+        var device = new LuxaforDevice(_stream.Object, descriptor);
+
+        var ex = await Assert.ThrowsAsync<LuxaforDeviceDisconnectedException>(() =>
+            device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+
+        Assert.Same(descriptor, ex.Descriptor);
+        Assert.Contains("LUXAFOR FLAG (1001)", ex.Message);
     }
 
     [Fact]
@@ -474,6 +543,8 @@ public class LuxaforDeviceTests
         // Give the first consumer time to start the read loop
         await Task.Delay(200, ct);
 
+        // Exactly InvalidOperationException, never the LuxaforDeviceDisconnectedException derived
+        // from it: a second consumer is a misuse of the API, not a device that went away.
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await foreach (var _ in device.ObserveAsync(cts.Token))
@@ -722,7 +793,7 @@ public class LuxaforDeviceTests
         _stream.Setup(s => s.CanWrite).Returns(false);
         var device = new LuxaforDevice(_stream.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<LuxaforDeviceDisconnectedException>(() =>
             device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
 
         Assert.Null(device.LastColor);

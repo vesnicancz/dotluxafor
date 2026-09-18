@@ -359,6 +359,37 @@ public class LuxaforAnimationsTests
     }
 
     [Fact]
+    public async Task SetColorScopedAsync_DeviceUnpluggedInsideTheScope_DoesNotThrowOnExit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var device = CreateDevice();
+
+        await using (await device.SetColorScopedAsync(LuxaforColor.Red, cancellationToken: ct))
+        {
+            _stream.Setup(s => s.CanWrite).Returns(false);
+        }
+    }
+
+    /// <summary>
+    /// Only a vanished device is swallowed on the way out of a scope. Any other failure is real,
+    /// and hiding it would leave the caller believing the light was put back.
+    /// </summary>
+    [Fact]
+    public async Task SetColorScopedAsync_UnrelatedFailureOnExit_IsNotSwallowed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var device = CreateDevice();
+
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+        {
+            await using (await device.SetColorScopedAsync(LuxaforColor.Red, cancellationToken: ct))
+            {
+                _stream.Setup(s => s.Write(It.IsAny<byte[]>())).Throws(new TimeoutException("The write timed out."));
+            }
+        });
+    }
+
+    [Fact]
     public async Task SetColorScopedAsync_NullDevice_Throws()
     {
         var ct = TestContext.Current.CancellationToken;

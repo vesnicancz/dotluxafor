@@ -12,7 +12,8 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Event streaming** via `IAsyncEnumerable<LuxaforEvent>` — battery level, mute button, pattern completion
 - **Device identification**: Auto-detect device type and serial number
 - **Multi-device support**: list attached devices, open a specific one by path, control several at once
-- **Dependency injection** integration built in (net8.0+), no extra package needed
+- **Dependency injection** integration built in (net8.0+), no extra package needed, with the
+  background service pinned to a chosen device by serial number, path or your own rule
 - **Hotplug aware**: wait for a device to be plugged in instead of polling for it
 - **Software animations**: fades between arbitrary colors, brightness pulses, scoped colors
 - **Predefined colors**, parsing by name, hex (`#RRGGBB`, `#RGB`) or `r,g,b`, and configuration binding
@@ -218,12 +219,50 @@ reports is what the service actually has open.
 
 No device is opened during registration — this is safe even when no device is connected.
 
+### Choosing which device the service opens
+
+By default the hosted service opens whatever the platform enumerates first. With more than one
+Luxafor attached, name the one you want:
+
+```csharp
+builder.Services.AddLuxaforHostedService(options =>
+{
+    options.AutoReconnect = true;
+
+    // The stable way to name one device: it survives a replug into another port.
+    options.SerialNumber = "1001";
+});
+```
+
+Three selectors are available, and at most one may be set — configuring two fails validation at
+startup rather than quietly letting one win:
+
+| Option | Binds from config | Use it for |
+|--------|-------------------|------------|
+| `SerialNumber` | yes | Pinning one device for good; survives a replug into another port |
+| `DevicePath` | yes | A path a user just picked out of `List()`; valid while the device stays in that port |
+| `SelectDevice` | no (delegate) | Any other rule — matching on product name, preferring one device but settling for another |
+
+```csharp
+options.SelectDevice = devices =>
+    devices.FirstOrDefault(d => d.ProductName?.Contains("MUTE") == true);
+```
+
+`SelectDevice` is called on every connection attempt with the devices attached at that moment, never
+with an empty list. Returning `null` means "none of these", and the service tries again on the next
+attempt rather than falling back to the wrong device.
+
+When a selector matches nothing but other Luxafors are attached, the service logs a warning naming
+what *is* attached — a mistyped serial number is fixable straight from the log. Nothing attached at
+all stays at `Debug`, since waiting for a device to be plugged in is the ordinary case.
+
 ### Reconnection
 
 With `AutoReconnect`, the service reconnects on the operating system's hotplug notification, so
 plugging a device in is picked up at once. `ReconnectDelay` is the fallback interval it re-checks on
 when no notification arrives, and the interval it uses when a device is attached but will not open
-(retrying that on hotplug would spin, since the device is already there).
+(retrying that on hotplug would spin, since the device is already there). A device that is attached
+but is not the one a selector asks for is the same case, and uses the same interval.
 
 ## Device Discovery
 
@@ -324,6 +363,33 @@ Platform notes for `AccessDenied`:
 | Linux | `/dev/hidraw*` is root-only by default | Add a udev rule for `04d8:f372`. |
 | Windows | Another process holds the device | Reported as `InUse`; close the official Luxafor software. |
 
+### When a device goes away mid-use
+
+Once a device is open, a command that can no longer reach it throws
+`LuxaforDeviceDisconnectedException` — whether the device went away before the write or during it:
+
+```csharp
+try
+{
+    await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+}
+catch (LuxaforDeviceDisconnectedException ex)
+{
+    // ex.Descriptor names the device that went away, and carries the DevicePath
+    // needed to reopen it once it comes back.
+    Console.Error.WriteLine(ex.Message);
+}
+```
+
+It derives from `InvalidOperationException`, which is what the library threw before the type
+existed, so code already catching that keeps working. Catching the specific type is what tells a
+vanished device apart from a misuse of the API — a second `ObserveAsync` consumer, say — which
+still reports the plain `InvalidOperationException`.
+
+A device that *you* disposed throws `ObjectDisposedException` instead: that says the caller let go
+of the device, not that the hardware left. While monitoring, the same event arrives as
+`LuxaforEvent.Disconnected` rather than as an exception.
+
 ## API Reference
 
 ### Interfaces
@@ -339,7 +405,9 @@ Platform notes for `AccessDenied`:
 | `PlayPatternAsync(pattern, repeat, ct)` | Plays a built-in hardware pattern |
 | `TurnOffAsync(ct)` | Turns off all LEDs |
 
-All methods default to `LedTarget.All` when `target` is omitted.
+All methods default to `LedTarget.All` when `target` is omitted. Every one of them throws
+`LuxaforDeviceDisconnectedException` when the device is gone and `ObjectDisposedException` when it
+has been disposed — see [When a device goes away mid-use](#when-a-device-goes-away-mid-use).
 
 #### ILuxaforConnection
 
