@@ -7,6 +7,6 @@ namespace DotLuxafor;
 /// </summary>
 internal sealed class HidDeviceListProvider : IHidDeviceListProvider
 {
-    public IEnumerable<HidDevice> GetDevices(int vendorId, int productId)
-        => DeviceList.Local.GetHidDevices(vendorId, productId);
+	public IEnumerable<HidDevice> GetDevices(int vendorId, int productId)
+		=> DeviceList.Local.GetHidDevices(vendorId, productId);
 }

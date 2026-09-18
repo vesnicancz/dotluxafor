@@ -8,5 +8,5 @@ namespace DotLuxafor;
 /// </summary>
 internal interface IHidDeviceListProvider
 {
-    IEnumerable<HidDevice> GetDevices(int vendorId, int productId);
+	IEnumerable<HidDevice> GetDevices(int vendorId, int productId);
 }

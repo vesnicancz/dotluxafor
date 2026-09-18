@@ -6,13 +6,13 @@ namespace DotLuxafor;
 /// </summary>
 internal interface IHidStreamAdapter : IDisposable
 {
-    bool CanWrite { get; }
-    bool CanRead { get; }
-    int ReadTimeout { get; set; }
-    void Write(byte[] buffer);
-    int Read(byte[] buffer, int offset, int count);
-    void SetFeature(byte[] buffer);
-    void GetFeature(byte[] buffer);
-    string? GetProductName();
-    string? GetDeviceSerialNumber();
+	bool CanWrite { get; }
+	bool CanRead { get; }
+	int ReadTimeout { get; set; }
+	void Write(byte[] buffer);
+	int Read(byte[] buffer, int offset, int count);
+	void SetFeature(byte[] buffer);
+	void GetFeature(byte[] buffer);
+	string? GetProductName();
+	string? GetDeviceSerialNumber();
 }
