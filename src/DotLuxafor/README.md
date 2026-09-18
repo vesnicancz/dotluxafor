@@ -405,6 +405,10 @@ if (device.Descriptor is not null && !manager.IsPresent(device.Descriptor))
 }
 ```
 
+The exception is constructible: `new LuxaforDeviceDisconnectedException(descriptor, inner)` builds
+the same thing the library throws, message and all, so a test double can make the handling below
+actually run.
+
 The reliable pattern is to act on the exception rather than to poll: catch
 `LuxaforDeviceDisconnectedException`, dispose the handle, reopen through `ex.Descriptor` and repeat
 the command — otherwise the command is lost until whatever drives the device next comes round.
