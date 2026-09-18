@@ -3,6 +3,20 @@ namespace DotLuxafor;
 /// <summary>
 /// Defines LED command operations for a Luxafor device.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Every command sends one short HID report. These methods are asynchronous because commands are
+/// serialized against each other and that wait is worth awaiting — not because the report itself is
+/// written asynchronously. <c>HidStream</c> offers only a blocking write, and a nine-byte USB report
+/// completes in well under a millisecond, so the write is done inline rather than pushed onto a
+/// thread-pool thread.
+/// </para>
+/// <para>
+/// A <c>cancellationToken</c> therefore cancels the wait for the device to become free, not a write
+/// that has already begun. Once a command reaches the device it always runs to completion, and it
+/// stays in effect until the next command replaces it.
+/// </para>
+/// </remarks>
 public interface ILuxaforCommands
 {
 	/// <summary>

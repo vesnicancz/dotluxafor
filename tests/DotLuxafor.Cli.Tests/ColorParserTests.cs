@@ -29,6 +29,9 @@ public class ColorParserTests
 
 	[Theory]
 	[InlineData("#FF0000", 255, 0, 0)]
+	[InlineData("FF0000", 255, 0, 0)]
+	[InlineData("#F00", 255, 0, 0)]
+	[InlineData("0f8", 0x00, 0xFF, 0x88)]
 	[InlineData("#00FF00", 0, 255, 0)]
 	[InlineData("#0000FF", 0, 0, 255)]
 	[InlineData("#ABCDEF", 0xAB, 0xCD, 0xEF)]
@@ -62,6 +65,8 @@ public class ColorParserTests
 	[Theory]
 	[InlineData("#GG0000")]
 	[InlineData("#FF00")]
+	[InlineData("GG0000")]
+	[InlineData("beef")]
 	public void Parse_InvalidHex_ThrowsFormatException(string input)
 	{
 		Assert.Throws<FormatException>(() => ColorParser.Parse(input));

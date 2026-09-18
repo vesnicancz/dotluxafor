@@ -267,9 +267,13 @@ public sealed class LuxaforDevice : ILuxaforDevice
 
 	/// <summary>
 	/// Sends a 9-byte HID output report to the device.
-	/// The semaphore serializes writes; the actual I/O is synchronous because
-	/// HidSharp does not expose an async write API.
 	/// </summary>
+	/// <remarks>
+	/// The semaphore serializes writes and is the only part a caller actually awaits. The write
+	/// itself is synchronous: <c>HidStream</c> exposes only a blocking <c>Write</c>, and a report
+	/// this small is not worth handing to a thread-pool thread. So the token is honoured up to the
+	/// moment the write starts and not afterwards.
+	/// </remarks>
 	internal async Task SendReportAsync(byte command, byte param1, byte param2, byte param3, byte param4, byte param5, byte param6, CancellationToken cancellationToken)
 	{
 		ThrowIfDisposed();

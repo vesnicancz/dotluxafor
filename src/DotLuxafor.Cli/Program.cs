@@ -102,7 +102,7 @@ internal static class Program
 
 			Color formats:
 			  Named:  red, green, blue, yellow, cyan, magenta, white, off
-			  Hex:    #FF0000
+			  Hex:    #FF0000, FF0000, #F00
 			  RGB:    255,0,0
 
 			Targets: all (default), top, bottom, led1-led6

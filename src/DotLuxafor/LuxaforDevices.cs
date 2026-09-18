@@ -26,9 +26,15 @@ public static class LuxaforDevices
 	public static DeviceOpenResult Open() => Manager.Open();
 
 	/// <summary>
-	/// Opens all connected Luxafor devices.
+	/// Opens all connected Luxafor devices, skipping any that cannot be opened.
 	/// </summary>
+	/// <remarks>Use <see cref="OpenAllResults"/> to find out which ones were skipped, and why.</remarks>
 	public static IReadOnlyList<ILuxaforDevice> OpenAll() => Manager.OpenAll();
+
+	/// <summary>
+	/// Opens all connected Luxafor devices, reporting the outcome of every attempt.
+	/// </summary>
+	public static IReadOnlyList<DeviceOpenResult> OpenAllResults() => Manager.OpenAllResults();
 
 	/// <summary>
 	/// Gets whether any Luxafor device is currently connected (without opening it).

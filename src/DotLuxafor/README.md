@@ -14,7 +14,7 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Multi-device support**: Control multiple Luxafor devices simultaneously
 - **Dependency injection** integration built in (net8.0+), no extra package needed
 - **Hotplug aware**: wait for a device to be plugged in instead of polling for it
-- **Predefined colors** and hex color parsing
+- **Predefined colors**, hex parsing (`#RRGGBB`, `#RGB`, with or without `#`), and configuration binding
 - Targets `netstandard2.0` and `net8.0`
 
 ## Installation
@@ -184,8 +184,17 @@ when no notification arrives, and the interval it uses when a device is attached
 // Open first device
 using var device = LuxaforDevices.TryOpen();
 
-// Open all connected devices
+// Open all connected devices, skipping any that will not open
 var devices = LuxaforDevices.OpenAll();
+
+// ...or see the outcome for every one of them
+foreach (var result in LuxaforDevices.OpenAllResults())
+{
+    if (result.Device is null)
+    {
+        Console.Error.WriteLine(result.Description);
+    }
+}
 
 // Check without opening
 bool present = LuxaforDevices.IsDevicePresent();
@@ -260,7 +269,8 @@ All methods default to `LedTarget.All` when `target` is omitted.
 |--------|-------------|
 | `TryOpen()` | Opens the first device, or `null` |
 | `Open()` | Opens the first device, reporting why it failed |
-| `OpenAll()` | Opens every connected device |
+| `OpenAll()` | Opens every connected device, skipping any that will not open |
+| `OpenAllResults()` | Opens every connected device, reporting the outcome of each attempt |
 | `IsDevicePresent()` | Whether a device is attached, without opening it |
 | `WaitForDeviceAsync(ct)` | Waits until a device is attached; does not open it |
 
@@ -323,12 +333,46 @@ LuxaforColor.Red, .Green, .Blue, .Yellow, .Cyan, .Magenta, .White, .Off
 // From RGB bytes
 new LuxaforColor(255, 128, 0)
 
-// From hex
+// From hex — #RRGGBB or #RGB, with or without the '#', any case, whitespace ignored
 LuxaforColor.FromHex("#FF8800")
+LuxaforColor.FromHex("ff8800")
+LuxaforColor.FromHex("#F80")     // → #FF8800
 LuxaforColor.TryFromHex("#FF8800", out var color)
 
 // To hex
 color.ToHex() // → "#FF8800"
+
+// Dim and blend
+LuxaforColor.Red.WithBrightness(0.25)                          // → #400000
+LuxaforColor.Lerp(LuxaforColor.Off, LuxaforColor.White, 0.5)   // → #808080
+```
+
+`WithBrightness` and `Lerp` clamp their factor to 0.0–1.0, so animation code does not have to
+range-check. Both operate directly on the RGB channels — neither is gamma-corrected.
+
+#### Binding from configuration
+
+`LuxaforColor` carries a `TypeConverter`, so it binds straight out of `appsettings.json`:
+
+```jsonc
+{ "Status": { "BusyColor": "#FF8800" } }
+```
+
+```csharp
+builder.Services.Configure<StatusOptions>(builder.Configuration.GetSection("Status"));
+
+public sealed class StatusOptions
+{
+    public LuxaforColor BusyColor { get; set; } = LuxaforColor.Red;
+}
+```
+
+On net8.0 it also implements `IParsable<LuxaforColor>`, which is what minimal-API route and query
+binding looks for:
+
+```csharp
+app.MapPost("/color/{color}", (LuxaforColor color, ILuxaforDeviceAccessor luxafor)
+    => luxafor.Current?.SetColorAsync(color) ?? Task.CompletedTask);
 ```
 
 ## Supported Devices
@@ -362,6 +406,12 @@ when the device pushes an identification report of its own accord during monitor
 All command methods are thread-safe and can be called concurrently with event monitoring, and
 `DeviceInfo` is safe to read while monitoring updates it. Events from `ObserveAsync()` are delivered
 on a background thread — UI marshalling is the caller's responsibility.
+
+Commands are asynchronous because they are serialized against each other, not because the HID write
+is asynchronous: `HidStream` offers only a blocking write, and a nine-byte report completes in well
+under a millisecond, so it is written inline rather than handed to a thread-pool thread. A
+`cancellationToken` therefore cancels the wait for the device to become free, not a write that has
+already begun.
 
 Events are buffered (64 deep) and delivered in order. A consumer that falls further behind than that
 applies backpressure to the reader instead of losing events, so keep the body of the `await foreach`
