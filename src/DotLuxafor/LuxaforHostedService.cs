@@ -10,12 +10,18 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// Background service that manages Luxafor device lifecycle,
 /// including auto-reconnection and automatic monitoring.
 /// </summary>
-public sealed class LuxaforHostedService : BackgroundService
+/// <remarks>
+/// Application code reaches the device it holds open through <see cref="ILuxaforDeviceAccessor"/>,
+/// which <c>AddLuxaforHostedService</c> registers alongside this service.
+/// </remarks>
+public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAccessor
 {
 	private readonly ILuxaforDeviceManager _deviceManager;
 	private readonly LuxaforOptions _options;
 	private readonly ILogger<LuxaforHostedService> _logger;
+	private readonly object _deviceLock = new object();
 	private ILuxaforDevice? _device;
+	private TaskCompletionSource<ILuxaforDevice> _deviceReady = NewDeviceReadySource();
 	private Task? _monitorTask;
 	private DeviceOpenStatus? _lastOpenFailure;
 
@@ -33,9 +39,33 @@ public sealed class LuxaforHostedService : BackgroundService
 	}
 
 	/// <summary>
-	/// Gets the currently connected device, if any.
+	/// Gets the currently connected device, if any. Safe to read from any thread.
 	/// </summary>
-	public ILuxaforDevice? CurrentDevice => _device;
+	public ILuxaforDevice? CurrentDevice
+	{
+		get
+		{
+			lock (_deviceLock)
+			{
+				return _device;
+			}
+		}
+	}
+
+	/// <inheritdoc />
+	ILuxaforDevice? ILuxaforDeviceAccessor.Current => CurrentDevice;
+
+	/// <inheritdoc />
+	public Task<ILuxaforDevice> WaitForDeviceAsync(CancellationToken cancellationToken = default)
+	{
+		Task<ILuxaforDevice> ready;
+		lock (_deviceLock)
+		{
+			ready = _deviceReady.Task;
+		}
+
+		return ready.WaitAsync(cancellationToken);
+	}
 
 	/// <inheritdoc />
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -44,20 +74,21 @@ public sealed class LuxaforHostedService : BackgroundService
 		{
 			try
 			{
-				if (_device == null || !_device.IsConnected)
+				var device = CurrentDevice;
+				if (device == null || !device.IsConnected)
 				{
 					await CleanupDeviceAsync().ConfigureAwait(false);
 					var openResult = _deviceManager.Open();
-					_device = openResult.Device;
 
-					if (_device != null)
+					if (openResult.Device != null)
 					{
 						_lastOpenFailure = null;
+						SetDevice(openResult.Device);
 						_logger.LogInformation("Luxafor device connected.");
 
 						if (_options.AutoMonitor)
 						{
-							_monitorTask = MonitorDeviceAsync(_device, stoppingToken);
+							_monitorTask = MonitorDeviceAsync(openResult.Device, stoppingToken);
 						}
 					}
 					else
@@ -71,7 +102,7 @@ public sealed class LuxaforHostedService : BackgroundService
 					return;
 				}
 
-				await Task.Delay(_options.ReconnectDelay, stoppingToken).ConfigureAwait(false);
+				await WaitBeforeRetryAsync(stoppingToken).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
 			{
@@ -82,6 +113,40 @@ public sealed class LuxaforHostedService : BackgroundService
 				_logger.LogError(ex, "Error in Luxafor hosted service.");
 				await Task.Delay(_options.ReconnectDelay, stoppingToken).ConfigureAwait(false);
 			}
+		}
+	}
+
+	/// <summary>
+	/// Waits before the next connection attempt.
+	/// </summary>
+	/// <remarks>
+	/// When the last attempt found nothing plugged in, this sleeps on the operating system's hotplug
+	/// notification so plugging a device in is picked up at once instead of up to
+	/// <see cref="LuxaforOptions.ReconnectDelay"/> later. Every other outcome — including a device
+	/// that is present but refuses to open — falls back to the plain timer, because a device that is
+	/// already attached would satisfy the hotplug wait immediately and spin the loop.
+	/// </remarks>
+	private Task WaitBeforeRetryAsync(CancellationToken stoppingToken)
+		=> _lastOpenFailure == DeviceOpenStatus.NotFound
+			? WaitForDeviceArrivalAsync(stoppingToken)
+			: Task.Delay(_options.ReconnectDelay, stoppingToken);
+
+	/// <summary>
+	/// Waits for a device to be plugged in, giving up after <see cref="LuxaforOptions.ReconnectDelay"/>
+	/// so the loop still re-checks periodically if a notification is ever missed.
+	/// </summary>
+	private async Task WaitForDeviceArrivalAsync(CancellationToken stoppingToken)
+	{
+		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+		timeout.CancelAfter(_options.ReconnectDelay);
+
+		try
+		{
+			await _deviceManager.WaitForDeviceAsync(timeout.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+		{
+			// Nothing was plugged in within the fallback interval; go round and look again.
 		}
 	}
 
@@ -155,14 +220,57 @@ public sealed class LuxaforHostedService : BackgroundService
 			_monitorTask = null;
 		}
 
-		_device?.Dispose();
-		_device = null;
+		var device = CurrentDevice;
+		ClearDevice();
+		device?.Dispose();
+	}
+
+	private static TaskCompletionSource<ILuxaforDevice> NewDeviceReadySource()
+		=> new TaskCompletionSource<ILuxaforDevice>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+	/// <summary>
+	/// Publishes a newly opened device and releases anyone waiting in <see cref="WaitForDeviceAsync"/>.
+	/// </summary>
+	private void SetDevice(ILuxaforDevice device)
+	{
+		lock (_deviceLock)
+		{
+			_device = device;
+			_deviceReady.TrySetResult(device);
+		}
+	}
+
+	/// <summary>
+	/// Withdraws the current device and arms a fresh wait, so a caller that arrives after a
+	/// disconnect waits for the next device instead of being handed the dead one.
+	/// </summary>
+	private void ClearDevice()
+	{
+		lock (_deviceLock)
+		{
+			_device = null;
+
+			if (_deviceReady.Task.IsCompleted)
+			{
+				_deviceReady = NewDeviceReadySource();
+			}
+		}
 	}
 
 	/// <inheritdoc />
 	public override void Dispose()
 	{
-		_device?.Dispose();
+		ILuxaforDevice? device;
+		lock (_deviceLock)
+		{
+			device = _device;
+			_device = null;
+
+			// Nothing will connect any more, so waiters are released rather than left hanging.
+			_deviceReady.TrySetCanceled();
+		}
+
+		device?.Dispose();
 		base.Dispose();
 	}
 }

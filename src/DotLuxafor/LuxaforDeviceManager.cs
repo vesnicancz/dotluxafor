@@ -74,4 +74,42 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
 	{
 		return _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId).Any();
 	}
+
+	/// <inheritdoc />
+	public async Task WaitForDeviceAsync(CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+
+		if (IsDevicePresent())
+		{
+			return;
+		}
+
+		// Continuations run off the notification thread so a caller cannot stall the HID stack.
+		var arrived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		void OnDeviceListChanged()
+		{
+			// The notification does not say what changed, and it fires for every HID device
+			// on the machine, so re-query for a Luxafor specifically.
+			if (IsDevicePresent())
+			{
+				arrived.TrySetResult(true);
+			}
+		}
+
+		using (_deviceListProvider.SubscribeToChanges(OnDeviceListChanged))
+		{
+			// A device may have arrived between the check above and the subscription going live.
+			if (IsDevicePresent())
+			{
+				return;
+			}
+
+			using (cancellationToken.Register(() => arrived.TrySetCanceled(cancellationToken)))
+			{
+				await arrived.Task.ConfigureAwait(false);
+			}
+		}
+	}
 }

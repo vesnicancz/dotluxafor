@@ -13,6 +13,7 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Device identification**: Auto-detect device type and serial number
 - **Multi-device support**: Control multiple Luxafor devices simultaneously
 - **Dependency injection** integration built in (net8.0+), no extra package needed
+- **Hotplug aware**: wait for a device to be plugged in instead of polling for it
 - **Predefined colors** and hex color parsing
 - Targets `netstandard2.0` and `net8.0`
 
@@ -120,7 +121,26 @@ builder.Services.AddLuxaforHostedService(options =>
 });
 ```
 
-Inject `ILuxaforDeviceManager` and open devices when needed:
+With the hosted service, inject `ILuxaforDeviceAccessor` to reach the device it keeps open. Do not
+dispose it and do not cache it in a field — the service owns it and replaces it across reconnects:
+
+```csharp
+public class StatusService(ILuxaforDeviceAccessor luxafor)
+{
+    public Task SetBusyAsync(CancellationToken ct)
+        => luxafor.Current?.SetColorAsync(LuxaforColor.Red, cancellationToken: ct)
+           ?? Task.CompletedTask;
+}
+```
+
+To block until a device is available rather than skipping the work:
+
+```csharp
+var device = await luxafor.WaitForDeviceAsync(ct);
+await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+```
+
+Without the hosted service, inject `ILuxaforDeviceManager` and open devices yourself:
 
 ```csharp
 public class StatusService(ILuxaforDeviceManager manager)
@@ -140,12 +160,23 @@ public class StatusService(ILuxaforDeviceManager manager)
 
 ### Registered Services
 
-| Service | Lifetime | Description |
-|---------|----------|-------------|
-| `ILuxaforDeviceManager` | Singleton | Device discovery (TryOpen, Open, OpenAll, IsDevicePresent) |
-| `IOptions<LuxaforOptions>` | Singleton | Configuration options |
+| Service | Lifetime | Registered by | Description |
+|---------|----------|---------------|-------------|
+| `ILuxaforDeviceManager` | Singleton | both | Device discovery (TryOpen, Open, OpenAll, IsDevicePresent, WaitForDeviceAsync) |
+| `IOptions<LuxaforOptions>` | Singleton | both | Configuration options |
+| `ILuxaforDeviceAccessor` | Singleton | `AddLuxaforHostedService` | Access to the device the background service holds open |
+
+`ILuxaforDeviceAccessor` is the same instance as the running `LuxaforHostedService`, so what it
+reports is what the service actually has open.
 
 No device is opened during registration — this is safe even when no device is connected.
+
+### Reconnection
+
+With `AutoReconnect`, the service reconnects on the operating system's hotplug notification, so
+plugging a device in is picked up at once. `ReconnectDelay` is the fallback interval it re-checks on
+when no notification arrives, and the interval it uses when a device is attached but will not open
+(retrying that on hotplug would spin, since the device is already there).
 
 ## Device Discovery
 
@@ -158,6 +189,10 @@ var devices = LuxaforDevices.OpenAll();
 
 // Check without opening
 bool present = LuxaforDevices.IsDevicePresent();
+
+// Wait for one to be plugged in (hotplug-driven, not polling)
+await LuxaforDevices.WaitForDeviceAsync(cancellationToken);
+using var device = LuxaforDevices.TryOpen();
 
 // Using the manager directly (useful for DI or custom logic)
 var manager = new LuxaforDeviceManager();
@@ -218,6 +253,28 @@ All methods default to `LedTarget.All` when `target` is omitted.
 | `IsConnected` | Whether the device connection is active |
 | `DeviceInfo` | Device type and serial, or `null` until identified |
 | `RequestDeviceInfoAsync(ct)` | Fills `DeviceInfo` with the device type and serial number |
+
+#### ILuxaforDeviceManager
+
+| Method | Description |
+|--------|-------------|
+| `TryOpen()` | Opens the first device, or `null` |
+| `Open()` | Opens the first device, reporting why it failed |
+| `OpenAll()` | Opens every connected device |
+| `IsDevicePresent()` | Whether a device is attached, without opening it |
+| `WaitForDeviceAsync(ct)` | Waits until a device is attached; does not open it |
+
+`WaitForDeviceAsync` is satisfied by a device that is attached but cannot be opened, so do not use
+it to drive a retry loop around a failing `Open()`.
+
+#### ILuxaforDeviceAccessor
+
+Registered by `AddLuxaforHostedService`. See [Dependency Injection](#dependency-injection).
+
+| Member | Description |
+|--------|-------------|
+| `Current` | The device the background service has open, or `null` |
+| `WaitForDeviceAsync(ct)` | Waits until the background service has a device open |
 
 #### ILuxaforMonitor
 
