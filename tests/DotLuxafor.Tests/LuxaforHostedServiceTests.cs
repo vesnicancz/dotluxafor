@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using DotLuxafor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,8 @@ namespace DotLuxafor.Tests;
 
 public class LuxaforHostedServiceTests
 {
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
     private readonly Mock<ILuxaforDeviceManager> _deviceManager = new();
     private readonly ILogger<LuxaforHostedService> _logger = NullLogger<LuxaforHostedService>.Instance;
 
@@ -21,6 +24,35 @@ public class LuxaforHostedServiceTests
             _logger);
     }
 
+    /// <summary>
+    /// Waits for the background loop to finish on its own. Only valid without
+    /// auto-reconnect, where ExecuteAsync returns after the first attempt.
+    /// </summary>
+    private static Task RunToCompletionAsync(LuxaforHostedService service, CancellationToken ct) =>
+        service.ExecuteTask!.WaitAsync(Timeout, ct);
+
+    /// <summary>
+    /// Polls until the condition holds. Used where the service keeps looping,
+    /// so there is no completion to await.
+    /// </summary>
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        CancellationToken ct,
+        [CallerArgumentExpression(nameof(condition))] string? description = null)
+    {
+        var deadline = Environment.TickCount64 + (long)Timeout.TotalMilliseconds;
+
+        while (!condition())
+        {
+            if (Environment.TickCount64 > deadline)
+            {
+                Assert.Fail($"Timed out after {Timeout.TotalSeconds}s waiting for: {description}");
+            }
+
+            await Task.Delay(10, ct);
+        }
+    }
+
     [Fact]
     public async Task ExecuteAsync_NoAutoReconnect_ExitsAfterFirstAttempt()
     {
@@ -29,11 +61,9 @@ public class LuxaforHostedServiceTests
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
 
-        // Give it time to execute
-        await Task.Delay(200, ct);
-
-        // Service should have exited; TryOpen only called once
+        // The loop has exited, so the count can no longer change.
         _deviceManager.Verify(m => m.TryOpen(), Times.Once);
 
         await service.StopAsync(ct);
@@ -43,22 +73,24 @@ public class LuxaforHostedServiceTests
     public async Task ExecuteAsync_WithAutoReconnect_RetriesOnNoDevice()
     {
         var ct = TestContext.Current.CancellationToken;
-        _deviceManager.Setup(m => m.TryOpen()).Returns((ILuxaforDevice?)null);
+        var tryOpenCount = 0;
+        _deviceManager.Setup(m => m.TryOpen()).Returns(() =>
+        {
+            Interlocked.Increment(ref tryOpenCount);
+            return null;
+        });
+
         var options = new LuxaforOptions
         {
             AutoReconnect = true,
-            ReconnectDelay = TimeSpan.FromMilliseconds(50)
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
         };
         var service = CreateService(options);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromMilliseconds(300));
-
-        await service.StartAsync(cts.Token);
-        await Task.Delay(300, ct);
+        await service.StartAsync(ct);
+        await WaitUntilAsync(() => Volatile.Read(ref tryOpenCount) >= 2, ct);
         await service.StopAsync(ct);
 
-        // Should have been called multiple times
         _deviceManager.Verify(m => m.TryOpen(), Times.AtLeast(2));
     }
 
@@ -73,7 +105,7 @@ public class LuxaforHostedServiceTests
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
-        await Task.Delay(200, ct);
+        await RunToCompletionAsync(service, ct);
 
         Assert.Same(device.Object, service.CurrentDevice);
 
@@ -98,7 +130,7 @@ public class LuxaforHostedServiceTests
         var service = CreateService(options);
 
         await service.StartAsync(ct);
-        await Task.Delay(200, ct);
+        await RunToCompletionAsync(service, ct);
         await service.StopAsync(ct);
 
         device.Verify(d => d.ObserveAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -114,6 +146,9 @@ public class LuxaforHostedServiceTests
         device1.Setup(d => d.IsConnected).Returns(() => Interlocked.Increment(ref device1ConnectedCalls) <= 2);
         device2.Setup(d => d.IsConnected).Returns(true);
 
+        var device1Disposals = 0;
+        device1.Setup(d => d.Dispose()).Callback(() => Interlocked.Increment(ref device1Disposals));
+
         var tryOpenCount = 0;
         _deviceManager.Setup(m => m.TryOpen()).Returns(() =>
             Interlocked.Increment(ref tryOpenCount) <= 1 ? device1.Object : device2.Object);
@@ -121,14 +156,14 @@ public class LuxaforHostedServiceTests
         var options = new LuxaforOptions
         {
             AutoReconnect = true,
-            ReconnectDelay = TimeSpan.FromMilliseconds(50)
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
         };
         var service = CreateService(options);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(5));
-        await service.StartAsync(cts.Token);
-        await Task.Delay(2000, ct);
+        await service.StartAsync(ct);
+        await WaitUntilAsync(
+            () => Volatile.Read(ref tryOpenCount) >= 2 && Volatile.Read(ref device1Disposals) >= 1,
+            ct);
         await service.StopAsync(ct);
 
         _deviceManager.Verify(m => m.TryOpen(), Times.AtLeast(2));
@@ -146,7 +181,7 @@ public class LuxaforHostedServiceTests
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
-        await Task.Delay(100, ct);
+        await RunToCompletionAsync(service, ct);
 
         service.Dispose();
 
@@ -170,18 +205,16 @@ public class LuxaforHostedServiceTests
         var options = new LuxaforOptions
         {
             AutoReconnect = true,
-            ReconnectDelay = TimeSpan.FromMilliseconds(50)
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
         };
         var service = CreateService(options);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(5));
-        await service.StartAsync(cts.Token);
-        await Task.Delay(2000, ct);
-        await service.StopAsync(ct);
+        await service.StartAsync(ct);
 
-        // Should have retried past the throwing calls
-        Assert.True(callCount >= 3);
+        // Retried past both throwing calls.
+        await WaitUntilAsync(() => Volatile.Read(ref callCount) >= 3, ct);
+
+        await service.StopAsync(ct);
     }
 
     [Fact]
@@ -204,10 +237,9 @@ public class LuxaforHostedServiceTests
         var service = CreateService(options);
 
         await service.StartAsync(ct);
-        await Task.Delay(300, ct);
+        await RunToCompletionAsync(service, ct);
         await service.StopAsync(ct);
 
-        // Verify ObserveAsync was called and processed events
         device.Verify(d => d.ObserveAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -222,9 +254,8 @@ public class LuxaforHostedServiceTests
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
-        await Task.Delay(200, ct);
+        await RunToCompletionAsync(service, ct);
 
-        // TryOpen called once, then service exits since no auto-reconnect
         _deviceManager.Verify(m => m.TryOpen(), Times.Once);
 
         await service.StopAsync(ct);
