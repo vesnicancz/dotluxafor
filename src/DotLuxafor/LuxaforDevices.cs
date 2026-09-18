@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace DotLuxafor;
 
 /// <summary>
@@ -39,6 +41,21 @@ public static class LuxaforDevices
 	/// Opens the device a descriptor identifies.
 	/// </summary>
 	public static DeviceOpenResult Open(LuxaforDeviceDescriptor descriptor) => Manager.Open(descriptor);
+
+	/// <summary>
+	/// Opens the first connected Luxafor device, wrapped so that it reopens itself when its handle
+	/// goes stale. See <see cref="ReconnectingLuxaforDevice"/> for what is replayed and what is not.
+	/// </summary>
+	/// <param name="logger">Where each reopen is reported, or <c>null</c> to report nowhere.</param>
+	public static DeviceOpenResult OpenReconnecting(ILogger? logger = null) => Manager.OpenReconnecting(logger);
+
+	/// <summary>
+	/// Opens a specific Luxafor device, wrapped so that it reopens itself when its handle goes stale.
+	/// </summary>
+	/// <param name="descriptor">The device to open, from <see cref="List"/>.</param>
+	/// <param name="logger">Where each reopen is reported, or <c>null</c> to report nowhere.</param>
+	public static DeviceOpenResult OpenReconnecting(LuxaforDeviceDescriptor descriptor, ILogger? logger = null)
+		=> Manager.OpenReconnecting(descriptor, logger);
 
 	/// <summary>
 	/// Lists the Luxafor devices attached to the machine without opening any of them, so a caller
