@@ -13,7 +13,7 @@ public static class LuxaforServiceCollectionExtensions
 	/// <summary>
 	/// Adds Luxafor device services to the service collection.
 	/// Registers <see cref="ILuxaforDeviceManager"/> and <see cref="LuxaforOptions"/>.
-	/// Use <see cref="ILuxaforDeviceManager.TryOpen"/> (or <see cref="ILuxaforDeviceManager.Open"/>,
+	/// Use <see cref="ILuxaforDeviceManager.TryOpen"/> (or <see cref="ILuxaforDeviceManager.Open()"/>,
 	/// which reports why an attempt failed) to open a device when needed,
 	/// or <see cref="AddLuxaforHostedService"/> for automatic connection management.
 	/// </summary>
@@ -25,7 +25,7 @@ public static class LuxaforServiceCollectionExtensions
 	/// <summary>
 	/// Adds Luxafor device services to the service collection with configuration.
 	/// Registers <see cref="ILuxaforDeviceManager"/> and <see cref="LuxaforOptions"/>.
-	/// Use <see cref="ILuxaforDeviceManager.TryOpen"/> (or <see cref="ILuxaforDeviceManager.Open"/>,
+	/// Use <see cref="ILuxaforDeviceManager.TryOpen"/> (or <see cref="ILuxaforDeviceManager.Open()"/>,
 	/// which reports why an attempt failed) to open a device when needed,
 	/// or <see cref="AddLuxaforHostedService"/> for automatic connection management.
 	/// </summary>

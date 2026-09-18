@@ -11,14 +11,14 @@ internal sealed class CommandRunner
 
 	public async Task SetColorAsync(ArgParser args)
 	{
-		LuxaforColor color = ColorParser.Parse(args.GetRequired("color"));
+		LuxaforColor color = LuxaforColor.Parse(args.GetRequired("color"));
 		LedTarget target = ParseTarget(args.GetOptional("target"));
 		await _device.SetColorAsync(color, target);
 	}
 
 	public async Task FadeAsync(ArgParser args)
 	{
-		LuxaforColor color = ColorParser.Parse(args.GetRequired("color"));
+		LuxaforColor color = LuxaforColor.Parse(args.GetRequired("color"));
 		byte speed = args.GetRequiredByte("speed");
 		LedTarget target = ParseTarget(args.GetOptional("target"));
 		await _device.FadeToAsync(color, speed, target);
@@ -26,7 +26,7 @@ internal sealed class CommandRunner
 
 	public async Task StrobeAsync(ArgParser args)
 	{
-		LuxaforColor color = ColorParser.Parse(args.GetRequired("color"));
+		LuxaforColor color = LuxaforColor.Parse(args.GetRequired("color"));
 		byte speed = args.GetRequiredByte("speed");
 		byte repeat = args.GetRequiredByte("repeat");
 		LedTarget target = ParseTarget(args.GetOptional("target"));
@@ -36,7 +36,7 @@ internal sealed class CommandRunner
 	public async Task WaveAsync(ArgParser args)
 	{
 		WaveType type = ParseWaveType(args.GetRequired("type"));
-		LuxaforColor color = ColorParser.Parse(args.GetRequired("color"));
+		LuxaforColor color = LuxaforColor.Parse(args.GetRequired("color"));
 		byte speed = args.GetRequiredByte("speed");
 		byte repeat = args.GetRequiredByte("repeat");
 		await _device.WaveAsync(type, color, speed, repeat);

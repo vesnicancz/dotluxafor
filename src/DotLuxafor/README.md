@@ -11,11 +11,12 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Per-LED targeting**: Individual LEDs, top/bottom side, or all
 - **Event streaming** via `IAsyncEnumerable<LuxaforEvent>` — battery level, mute button, pattern completion
 - **Device identification**: Auto-detect device type and serial number
-- **Multi-device support**: Control multiple Luxafor devices simultaneously
+- **Multi-device support**: list attached devices, open a specific one by path, control several at once
 - **Dependency injection** integration built in (net8.0+), no extra package needed
 - **Hotplug aware**: wait for a device to be plugged in instead of polling for it
-- **Predefined colors**, hex parsing (`#RRGGBB`, `#RGB`, with or without `#`), and configuration binding
-- Targets `netstandard2.0` and `net8.0`
+- **Software animations**: fades between arbitrary colors, brightness pulses, scoped colors
+- **Predefined colors**, parsing by name, hex (`#RRGGBB`, `#RGB`) or `r,g,b`, and configuration binding
+- Targets `netstandard2.0`, `net8.0` and `net10.0`
 
 ## Installation
 
@@ -103,6 +104,52 @@ await foreach (var evt in device.ObserveAsync(cancellationToken))
     }
 }
 ```
+
+## Software Animations
+
+`FadeToAsync` and `StrobeAsync` run on the device itself and keep going after your process stops
+awaiting them — prefer them where they suffice. The animations below run on the computer, sending
+static-color reports at about 40 Hz, which buys effects the hardware cannot produce on its own:
+
+```csharp
+// Fade between two arbitrary colors over a wall-clock duration
+await device.FadeOverAsync(LuxaforColor.Green, LuxaforColor.Red, TimeSpan.FromSeconds(2), cancellationToken: ct);
+
+// ...or from wherever the device is resting now
+await device.FadeOverAsync(LuxaforColor.Red, TimeSpan.FromSeconds(2), cancellationToken: ct);
+
+// Pulse three times, then leave the color showing
+await device.PulseAsync(LuxaforColor.Yellow, TimeSpan.FromMilliseconds(800), cycles: 3, cancellationToken: ct);
+
+// Pulse until cancelled
+await device.PulseAsync(LuxaforColor.Red, TimeSpan.FromSeconds(1), cancellationToken: ct);
+```
+
+The position of a fade is taken from the clock rather than a frame counter, so it takes the time it
+was asked for even when the device is slow to accept reports, and it always finishes by setting the
+destination color exactly.
+
+### Scoped colors
+
+To show a color for the duration of some work and then put the light back:
+
+```csharp
+await using (await device.SetColorScopedAsync(LuxaforColor.Red, cancellationToken: ct))
+{
+    await RunTheBuildAsync(ct);
+}
+// back to whatever the device was showing before
+```
+
+The color to restore is read from `LastColor` — what this library last set the whole device to —
+falling back to `Off` when that is not known. Pass it explicitly when you know better:
+
+```csharp
+await using (await device.SetColorScopedAsync(LuxaforColor.Red, restoreTo: LuxaforColor.Green, cancellationToken: ct))
+```
+
+Restoring deliberately ignores the cancellation token: a scope that ends *because* its token was
+cancelled is exactly the case where the light still has to be put back.
 
 ## Dependency Injection
 
@@ -196,6 +243,12 @@ foreach (var result in LuxaforDevices.OpenAllResults())
     }
 }
 
+// List what is attached, without opening anything
+foreach (var d in LuxaforDevices.List())
+{
+    Console.WriteLine($"{d} at {d.DevicePath}");
+}
+
 // Check without opening
 bool present = LuxaforDevices.IsDevicePresent();
 
@@ -206,6 +259,39 @@ using var device = LuxaforDevices.TryOpen();
 // Using the manager directly (useful for DI or custom logic)
 var manager = new LuxaforDeviceManager();
 using var device = manager.TryOpen();
+```
+
+### Choosing a device
+
+`Open()` takes whatever the platform enumerates first, which is not guaranteed to be the same device
+across replugs. When it matters which one you get — a picker in a UI, a `--device` flag, or simply
+reopening the same device after a reconnect — go through `List()`:
+
+```csharp
+// Offer a choice
+IReadOnlyList<LuxaforDeviceDescriptor> attached = LuxaforDevices.List();
+LuxaforDeviceDescriptor chosen = attached[index];
+
+// ...and open exactly that one
+using var device = LuxaforDevices.Open(chosen).Device;
+
+// The path is what to persist; it is stable while the device stays in the same port
+string path = chosen.DevicePath;
+using var again = LuxaforDevices.Open(path).Device;
+```
+
+`List()` opens nothing, so a device the operating system will not let you open still shows up —
+which is the device a user most needs to see in a picker. Its `ProductName` and `SerialNumber` come
+from USB string descriptors and are `null` when the platform will not hand them over.
+
+Every opened device carries the descriptor it was opened as, which is how devices from `OpenAll()`
+are told apart:
+
+```csharp
+foreach (var device in LuxaforDevices.OpenAll())
+{
+    Console.WriteLine($"{device.Descriptor}: {device.Descriptor?.DevicePath}");
+}
 ```
 
 ### Diagnosing a failed open
@@ -260,8 +346,15 @@ All methods default to `LedTarget.All` when `target` is omitted.
 | Member | Description |
 |--------|-------------|
 | `IsConnected` | Whether the device connection is active |
+| `Descriptor` | How the device was identified when opened, or `null` if not opened via the manager |
 | `DeviceInfo` | Device type and serial, or `null` until identified |
+| `LastColor` | The color this library last set the whole device to, or `null` when unknown |
 | `RequestDeviceInfoAsync(ct)` | Fills `DeviceInfo` with the device type and serial number |
+
+`LastColor` is set by `SetColorAsync` and `FadeToAsync` when they target `LedTarget.All`. It is
+`null` before the first such command, after a per-LED command, and after a strobe, wave or pattern —
+in each of those cases the device as a whole has no single resting color. It reports what the
+library sent, not a reading from the device: the hardware cannot be asked what it is showing.
 
 #### ILuxaforDeviceManager
 
@@ -269,6 +362,9 @@ All methods default to `LedTarget.All` when `target` is omitted.
 |--------|-------------|
 | `TryOpen()` | Opens the first device, or `null` |
 | `Open()` | Opens the first device, reporting why it failed |
+| `Open(devicePath)` | Opens the device at a specific path, reporting why it failed |
+| `Open(descriptor)` | Opens the device a descriptor identifies |
+| `List()` | Lists attached devices without opening any of them |
 | `OpenAll()` | Opens every connected device, skipping any that will not open |
 | `OpenAllResults()` | Opens every connected device, reporting the outcome of each attempt |
 | `IsDevicePresent()` | Whether a device is attached, without opening it |
@@ -305,6 +401,16 @@ Registered by `AddLuxaforHostedService`. See [Dependency Injection](#dependency-
 
 ### Extension Methods
 
+Animations, on `ILuxaforCommands` (see [Software Animations](#software-animations)):
+
+| Method | Description |
+|--------|-------------|
+| `FadeOverAsync(from, to, duration, target, ct)` | Software fade between two colors |
+| `FadeOverAsync(to, duration, target, ct)` | Software fade from the current resting color |
+| `PulseAsync(color, period, cycles, target, ct)` | Brightness pulse; `cycles: 0` runs until cancelled |
+| `SetColorScopedAsync(color, target, ct)` | Sets a color and restores the previous one on dispose |
+| `SetColorScopedAsync(color, restoreTo, target, ct)` | Sets a color and restores a chosen one on dispose |
+
 RGB byte overloads are available as extension methods on `ILuxaforCommands`:
 
 ```csharp
@@ -333,11 +439,17 @@ LuxaforColor.Red, .Green, .Blue, .Yellow, .Cyan, .Magenta, .White, .Off
 // From RGB bytes
 new LuxaforColor(255, 128, 0)
 
-// From hex — #RRGGBB or #RGB, with or without the '#', any case, whitespace ignored
+// From any accepted spelling: a name, hex, or decimal RGB
+LuxaforColor.Parse("red")
+LuxaforColor.Parse("#FF8800")
+LuxaforColor.Parse("255,136,0")
+LuxaforColor.TryParse(userInput, out var color)
+
+// From hex specifically — #RRGGBB or #RGB, with or without the '#', any case, whitespace ignored
 LuxaforColor.FromHex("#FF8800")
 LuxaforColor.FromHex("ff8800")
 LuxaforColor.FromHex("#F80")     // → #FF8800
-LuxaforColor.TryFromHex("#FF8800", out var color)
+LuxaforColor.TryFromHex("#FF8800", out var hex)
 
 // To hex
 color.ToHex() // → "#FF8800"
@@ -348,7 +460,12 @@ LuxaforColor.Lerp(LuxaforColor.Off, LuxaforColor.White, 0.5)   // → #808080
 ```
 
 `WithBrightness` and `Lerp` clamp their factor to 0.0–1.0, so animation code does not have to
-range-check. Both operate directly on the RGB channels — neither is gamma-corrected.
+range-check. Both operate directly on the RGB channels — neither is gamma-corrected. They are what
+[the software animations](#software-animations) are built from.
+
+The names `Parse` accepts are `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `white` and
+`off`/`black` — the colors this type declares as constants, and no more. `FromHex` stays hex-only,
+so code that means "a hex color" still says so.
 
 #### Binding from configuration
 
@@ -356,6 +473,7 @@ range-check. Both operate directly on the RGB channels — neither is gamma-corr
 
 ```jsonc
 { "Status": { "BusyColor": "#FF8800" } }
+// ...or "red", or "255,136,0" — the converter accepts everything Parse does
 ```
 
 ```csharp
@@ -404,8 +522,13 @@ when the device pushes an identification report of its own accord during monitor
 ## Thread Safety
 
 All command methods are thread-safe and can be called concurrently with event monitoring, and
-`DeviceInfo` is safe to read while monitoring updates it. Events from `ObserveAsync()` are delivered
-on a background thread — UI marshalling is the caller's responsibility.
+`DeviceInfo`, `LastColor` and `Descriptor` are safe to read while monitoring updates them. Events
+from `ObserveAsync()` are delivered on a background thread — UI marshalling is the caller's
+responsibility.
+
+`ObserveAsync()` runs its blocking read loop on a dedicated background thread, not a thread-pool
+thread: the loop blocks for the whole monitoring session, and parking that on the pool would cost it
+a thread for as long as monitoring runs.
 
 Commands are asynchronous because they are serialized against each other, not because the HID write
 is asynchronous: `HidStream` offers only a blocking write, and a nine-byte report completes in well

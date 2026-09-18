@@ -101,7 +101,7 @@ internal static class Program
 			  info
 
 			Color formats:
-			  Named:  red, green, blue, yellow, cyan, magenta, white, off
+			  Named:  red, green, blue, yellow, cyan, magenta, white, off/black
 			  Hex:    #FF0000, FF0000, #F00
 			  RGB:    255,0,0
 

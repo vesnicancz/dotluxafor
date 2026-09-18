@@ -394,6 +394,50 @@ public class LuxaforDeviceTests
     }
 
     [Fact]
+    public async Task ObserveAsync_ReadsOnADedicatedThread_NotAThreadPoolThread()
+    {
+        // The read loop blocks for the whole monitoring session. On a pool thread that is a thread
+        // the pool cannot have back, and monitoring several devices would starve it.
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        var report = new byte[] { 0x00, 0x83, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+        var readCount = 0;
+
+        // Sampled inside the callback: by the time the enumeration ends the thread is gone, and a
+        // dead Thread will not answer questions about itself.
+        var wasThreadPoolThread = true;
+        var wasBackground = false;
+        string? threadName = null;
+
+        _stream.Setup(s => s.Read(It.IsAny<byte[]>(), 0, LuxaforDevice.ReportLength))
+            .Returns((byte[] buf, int _, int _) =>
+            {
+                wasThreadPoolThread = Thread.CurrentThread.IsThreadPoolThread;
+                wasBackground = Thread.CurrentThread.IsBackground;
+                threadName = Thread.CurrentThread.Name;
+
+                if (Interlocked.Increment(ref readCount) == 1)
+                {
+                    Array.Copy(report, buf, report.Length);
+                    return LuxaforDevice.ReportLength;
+                }
+                throw new TimeoutException();
+            });
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        await foreach (var _ in device.ObserveAsync(cts.Token))
+        {
+            break;
+        }
+
+        Assert.False(wasThreadPoolThread, "The read loop must not run on a thread-pool thread.");
+        Assert.True(wasBackground, "The read loop must not keep the process alive.");
+        Assert.Equal("DotLuxafor HID read loop", threadName);
+    }
+
+    [Fact]
     public async Task ObserveAsync_WhenDisposed_ThrowsObjectDisposedException()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -574,6 +618,130 @@ public class LuxaforDeviceTests
         }
 
         Assert.Equal(Enumerable.Range(0, eventCount).Select(i => i % 101), levels);
+    }
+
+    #endregion
+
+    #region LastColor and Descriptor
+
+    [Fact]
+    public void LastColor_BeforeAnyCommand_IsNull()
+    {
+        Assert.Null(CreateDevice().LastColor);
+    }
+
+    [Fact]
+    public async Task SetColorAsync_TargetingAllLeds_RecordsLastColor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+
+        await device.SetColorAsync(new LuxaforColor(1, 2, 3), cancellationToken: ct);
+
+        Assert.Equal(new LuxaforColor(1, 2, 3), device.LastColor);
+    }
+
+    [Fact]
+    public async Task FadeToAsync_TargetingAllLeds_RecordsTheColorItComesToRestAt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+
+        await device.FadeToAsync(LuxaforColor.Green, speed: 30, cancellationToken: ct);
+
+        Assert.Equal(LuxaforColor.Green, device.LastColor);
+    }
+
+    [Fact]
+    public async Task TurnOffAsync_RecordsOff()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+
+        await device.TurnOffAsync(ct);
+
+        Assert.Equal(LuxaforColor.Off, device.LastColor);
+    }
+
+    [Theory]
+    [InlineData(LedTarget.TopSide)]
+    [InlineData(LedTarget.Led3)]
+    public async Task SetColorAsync_TargetingSomeLeds_ClearsLastColor(LedTarget target)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+
+        await device.SetColorAsync(LuxaforColor.Blue, target, ct);
+
+        // Part of the device is blue and part is red, so there is no one colour to report.
+        Assert.Null(device.LastColor);
+    }
+
+    [Fact]
+    public async Task StrobeAsync_ClearsLastColor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+
+        await device.StrobeAsync(LuxaforColor.Blue, speed: 10, repeat: 3, cancellationToken: ct);
+
+        Assert.Null(device.LastColor);
+    }
+
+    [Fact]
+    public async Task WaveAsync_ClearsLastColor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+
+        await device.WaveAsync(WaveType.Smooth, LuxaforColor.Blue, speed: 10, repeat: 1, cancellationToken: ct);
+
+        Assert.Null(device.LastColor);
+    }
+
+    [Fact]
+    public async Task PlayPatternAsync_ClearsLastColor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+
+        await device.PlayPatternAsync(BuiltInPattern.Rainbow, repeat: 1, cancellationToken: ct);
+
+        Assert.Null(device.LastColor);
+    }
+
+    [Fact]
+    public async Task LastColor_IsNotRecordedWhenTheWriteFails()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stream.Setup(s => s.CanWrite).Returns(false);
+        var device = new LuxaforDevice(_stream.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct));
+
+        Assert.Null(device.LastColor);
+    }
+
+    [Fact]
+    public void Descriptor_IsNullWhenTheDeviceWasNotOpenedThroughTheManager()
+    {
+        Assert.Null(CreateDevice().Descriptor);
+    }
+
+    [Fact]
+    public void Descriptor_IsWhateverTheDeviceWasOpenedAs()
+    {
+        var descriptor = new LuxaforDeviceDescriptor("/dev/hidraw0", "LUXAFOR FLAG", "1001");
+
+        using var device = new LuxaforDevice(_stream.Object, descriptor);
+
+        Assert.Same(descriptor, device.Descriptor);
     }
 
     #endregion

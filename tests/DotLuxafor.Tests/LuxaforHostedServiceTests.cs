@@ -21,7 +21,10 @@ public class LuxaforHostedServiceTests
             .Returns((CancellationToken token) => Task.Delay(System.Threading.Timeout.Infinite, token));
     }
 
-    private static DeviceOpenResult Opened(ILuxaforDevice device) => DeviceOpenResult.Opened(device);
+    private static readonly LuxaforDeviceDescriptor Descriptor =
+        new LuxaforDeviceDescriptor("/dev/hidraw0", "LUXAFOR FLAG", "42");
+
+    private static DeviceOpenResult Opened(ILuxaforDevice device) => DeviceOpenResult.Opened(device, Descriptor);
 
     /// <summary>
     /// Creates a connected device and materializes its proxy up front. Moq builds <c>Mock&lt;T&gt;.Object</c>
@@ -38,7 +41,7 @@ public class LuxaforHostedServiceTests
     private static DeviceOpenResult NotFound() => DeviceOpenResult.NotFound();
 
     private static DeviceOpenResult Failure(DeviceOpenStatus status) =>
-        DeviceOpenResult.Failure(status, new IOException("The device is in use."));
+        DeviceOpenResult.Failure(status, Descriptor, new IOException("The device is in use."));
 
     private LuxaforHostedService CreateService(LuxaforOptions? options = null)
     {

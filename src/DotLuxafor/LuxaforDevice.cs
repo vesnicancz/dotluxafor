@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using HidSharp;
 
 namespace DotLuxafor;
 
@@ -41,20 +40,17 @@ public sealed class LuxaforDevice : ILuxaforDevice
 	private const int EventBufferCapacity = 64;
 
 	private readonly SemaphoreSlim _writeSemaphore = new SemaphoreSlim(1, 1);
-	private readonly object _deviceInfoLock = new object();
+	private readonly object _stateLock = new object();
 	private readonly IHidStreamAdapter _stream;
 	private DeviceInfo? _deviceInfo;
+	private LuxaforColor? _lastColor;
 	private int _disposed;
 	private int _monitoring;
 
-	internal LuxaforDevice(IHidStreamAdapter stream)
+	internal LuxaforDevice(IHidStreamAdapter stream, LuxaforDeviceDescriptor? descriptor = null)
 	{
 		_stream = stream;
-	}
-
-	internal LuxaforDevice(HidStream stream)
-		: this(new HidStreamAdapter(stream))
-	{
+		Descriptor = descriptor;
 	}
 
 	/// <inheritdoc />
@@ -79,6 +75,9 @@ public sealed class LuxaforDevice : ILuxaforDevice
 	}
 
 	/// <inheritdoc />
+	public LuxaforDeviceDescriptor? Descriptor { get; }
+
+	/// <inheritdoc />
 	/// <remarks>
 	/// Guarded by a lock: the read loop writes this from a background thread, and the value is a
 	/// nullable struct larger than a word, so an unsynchronized read could tear.
@@ -87,16 +86,36 @@ public sealed class LuxaforDevice : ILuxaforDevice
 	{
 		get
 		{
-			lock (_deviceInfoLock)
+			lock (_stateLock)
 			{
 				return _deviceInfo;
 			}
 		}
 		private set
 		{
-			lock (_deviceInfoLock)
+			lock (_stateLock)
 			{
 				_deviceInfo = value;
+			}
+		}
+	}
+
+	/// <inheritdoc />
+	/// <remarks>Guarded by the same lock as <see cref="DeviceInfo"/>, and for the same reason.</remarks>
+	public LuxaforColor? LastColor
+	{
+		get
+		{
+			lock (_stateLock)
+			{
+				return _lastColor;
+			}
+		}
+		private set
+		{
+			lock (_stateLock)
+			{
+				_lastColor = value;
 			}
 		}
 	}
@@ -104,28 +123,53 @@ public sealed class LuxaforDevice : ILuxaforDevice
 	#region Commands
 
 	/// <inheritdoc />
-	public Task SetColorAsync(LuxaforColor color, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
-		=> SendReportAsync(CommandStaticColor, (byte)target, color.R, color.G, color.B, 0x00, 0x00, cancellationToken);
+	public async Task SetColorAsync(LuxaforColor color, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
+	{
+		await SendReportAsync(CommandStaticColor, (byte)target, color.R, color.G, color.B, 0x00, 0x00, cancellationToken).ConfigureAwait(false);
+		RecordRestingColor(color, target);
+	}
 
 	/// <inheritdoc />
-	public Task FadeToAsync(LuxaforColor color, byte speed, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
-		=> SendReportAsync(CommandFade, (byte)target, color.R, color.G, color.B, speed, 0x00, cancellationToken);
+	public async Task FadeToAsync(LuxaforColor color, byte speed, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
+	{
+		await SendReportAsync(CommandFade, (byte)target, color.R, color.G, color.B, speed, 0x00, cancellationToken).ConfigureAwait(false);
+
+		// The fade is still running on the device, but the colour it is heading for is where it
+		// comes to rest, and that is what LastColor is about.
+		RecordRestingColor(color, target);
+	}
 
 	/// <inheritdoc />
-	public Task StrobeAsync(LuxaforColor color, byte speed, byte repeat, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
-		=> SendReportAsync(CommandStrobe, (byte)target, color.R, color.G, color.B, speed, repeat, cancellationToken);
+	public async Task StrobeAsync(LuxaforColor color, byte speed, byte repeat, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default)
+	{
+		await SendReportAsync(CommandStrobe, (byte)target, color.R, color.G, color.B, speed, repeat, cancellationToken).ConfigureAwait(false);
+		LastColor = null;
+	}
 
 	/// <inheritdoc />
-	public Task WaveAsync(WaveType type, LuxaforColor color, byte speed, byte repeat, CancellationToken cancellationToken = default)
-		=> SendReportAsync(CommandWave, (byte)type, color.R, color.G, color.B, repeat, speed, cancellationToken);
+	public async Task WaveAsync(WaveType type, LuxaforColor color, byte speed, byte repeat, CancellationToken cancellationToken = default)
+	{
+		await SendReportAsync(CommandWave, (byte)type, color.R, color.G, color.B, repeat, speed, cancellationToken).ConfigureAwait(false);
+		LastColor = null;
+	}
 
 	/// <inheritdoc />
-	public Task PlayPatternAsync(BuiltInPattern pattern, byte repeat, CancellationToken cancellationToken = default)
-		=> SendReportAsync(CommandPattern, (byte)pattern, repeat, 0x00, 0x00, 0x00, 0x00, cancellationToken);
+	public async Task PlayPatternAsync(BuiltInPattern pattern, byte repeat, CancellationToken cancellationToken = default)
+	{
+		await SendReportAsync(CommandPattern, (byte)pattern, repeat, 0x00, 0x00, 0x00, 0x00, cancellationToken).ConfigureAwait(false);
+		LastColor = null;
+	}
 
 	/// <inheritdoc />
 	public Task TurnOffAsync(CancellationToken cancellationToken = default)
 		=> SetColorAsync(LuxaforColor.Off, LedTarget.All, cancellationToken);
+
+	/// <summary>
+	/// Records the colour the device now rests at — but only for a whole-device command. After a
+	/// per-LED command the device as a whole has no one colour, so the answer is "unknown".
+	/// </summary>
+	private void RecordRestingColor(LuxaforColor color, LedTarget target)
+		=> LastColor = target == LedTarget.All ? color : (LuxaforColor?)null;
 
 	#endregion Commands
 
@@ -208,7 +252,7 @@ public sealed class LuxaforDevice : ILuxaforDevice
 			});
 
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-			var readTask = Task.Run(() => ReadLoop(channel.Writer, cts.Token), cts.Token);
+			var readTask = StartReadLoop(channel.Writer, cts.Token);
 
 			try
 			{
@@ -295,6 +339,50 @@ public sealed class LuxaforDevice : ILuxaforDevice
 		{
 			_writeSemaphore.Release();
 		}
+	}
+
+	/// <summary>
+	/// Starts the read loop on a dedicated background thread and returns a task that completes when
+	/// the loop does.
+	/// </summary>
+	/// <remarks>
+	/// Deliberately not <see cref="Task.Run(Action)"/>. <see cref="ReadLoop"/> blocks for the whole
+	/// monitoring session — it is a synchronous read with a half-second timeout in a loop, and it
+	/// blocks again inside <see cref="Publish"/> whenever the consumer falls behind. Parking that on
+	/// a thread-pool thread costs the pool a thread for hours, and monitoring several devices at
+	/// once is a plausible way to starve it. A dedicated thread is what this work actually is.
+	/// </remarks>
+	private Task StartReadLoop(ChannelWriter<LuxaforEvent> writer, CancellationToken cancellationToken)
+	{
+		// RunContinuationsAsynchronously so awaiting the task never runs the consumer's
+		// continuation on the read thread, which is about to exit.
+		var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		var thread = new Thread(() =>
+		{
+			try
+			{
+				ReadLoop(writer, cancellationToken);
+				completion.TrySetResult(true);
+			}
+			catch (OperationCanceledException)
+			{
+				completion.TrySetCanceled(cancellationToken);
+			}
+			catch (Exception ex)
+			{
+				// ReadLoop handles its own errors, so this is the "should not happen" path. Surface
+				// it through the task rather than letting it take the process down.
+				completion.TrySetException(ex);
+			}
+		})
+		{
+			IsBackground = true,
+			Name = "DotLuxafor HID read loop"
+		};
+
+		thread.Start();
+		return completion.Task;
 	}
 
 	private void ReadLoop(ChannelWriter<LuxaforEvent> writer, CancellationToken cancellationToken)

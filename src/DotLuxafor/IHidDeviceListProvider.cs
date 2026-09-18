@@ -1,5 +1,3 @@
-using HidSharp;
-
 namespace DotLuxafor;
 
 /// <summary>
@@ -8,7 +6,7 @@ namespace DotLuxafor;
 /// </summary>
 internal interface IHidDeviceListProvider
 {
-	IEnumerable<HidDevice> GetDevices(int vendorId, int productId);
+	IEnumerable<IHidDeviceHandle> GetDevices(int vendorId, int productId);
 
 	/// <summary>
 	/// Subscribes to changes in the set of attached devices. The handler carries no payload:

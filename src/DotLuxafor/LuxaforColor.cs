@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 
 namespace DotLuxafor;
 
@@ -34,6 +35,121 @@ public readonly record struct LuxaforColor(byte R, byte G, byte B)
 
 	/// <summary>Off / black (0, 0, 0).</summary>
 	public static readonly LuxaforColor Off = new(0, 0, 0);
+
+	/// <summary>
+	/// The colors <see cref="Parse(string)"/> accepts by name, keyed case-insensitively.
+	/// </summary>
+	/// <remarks>
+	/// Deliberately limited to the named constants this type declares, plus <c>black</c> as an
+	/// alias for <see cref="Off"/>. It is not a CSS color table: a device with six LEDs and no
+	/// gamma correction gains nothing from a hundred names nobody can tell apart on it.
+	/// </remarks>
+	private static readonly Dictionary<string, LuxaforColor> NamedColors =
+		new Dictionary<string, LuxaforColor>(StringComparer.OrdinalIgnoreCase)
+		{
+			["red"] = Red,
+			["green"] = Green,
+			["blue"] = Blue,
+			["yellow"] = Yellow,
+			["cyan"] = Cyan,
+			["magenta"] = Magenta,
+			["white"] = White,
+			["off"] = Off,
+			["black"] = Off,
+		};
+
+	/// <summary>
+	/// The accepted spellings, for error messages and help text.
+	/// </summary>
+	internal const string FormatHint =
+		"Use a named color (red, green, blue, yellow, cyan, magenta, white, off/black), "
+		+ "hex (#FF0000, FF0000 or #F00), or RGB (255,0,0).";
+
+	/// <summary>
+	/// Parses a color from any spelling the library accepts: a name, a hex string, or
+	/// comma-separated RGB bytes.
+	/// </summary>
+	/// <param name="text">
+	/// A color name (<c>red</c>, <c>off</c>, ...), a hex color (<c>#RRGGBB</c>, <c>#RGB</c>, with or
+	/// without the leading <c>#</c>), or three decimal bytes (<c>255,0,0</c>). Case does not matter
+	/// and surrounding whitespace is ignored.
+	/// </param>
+	/// <returns>The parsed color.</returns>
+	/// <exception cref="FormatException">Thrown when the string is not a color in any accepted form.</exception>
+	public static LuxaforColor Parse(string text)
+	{
+		if (TryParse(text, out var color))
+		{
+			return color;
+		}
+
+		throw new FormatException($"Invalid color: '{text}'. {FormatHint}");
+	}
+
+	/// <summary>
+	/// Tries to parse a color from any spelling the library accepts: a name, a hex string, or
+	/// comma-separated RGB bytes.
+	/// </summary>
+	/// <param name="text">The text to parse. See <see cref="Parse(string)"/> for the accepted forms.</param>
+	/// <param name="color">The parsed color, or default if parsing fails.</param>
+	/// <returns><c>true</c> if parsing succeeded.</returns>
+	public static bool TryParse(string? text, out LuxaforColor color)
+	{
+		color = default;
+
+		if (text is null)
+		{
+			return false;
+		}
+
+		var trimmed = text.Trim();
+		if (trimmed.Length == 0)
+		{
+			return false;
+		}
+
+		if (NamedColors.TryGetValue(trimmed, out color))
+		{
+			return true;
+		}
+
+		// A comma is what distinguishes decimal RGB from hex, so the two never have to be
+		// guessed between: "255,0,0" is RGB and nothing else, "FF0000" is hex and nothing else.
+		if (trimmed.IndexOf(',') >= 0)
+		{
+			return TryParseRgb(trimmed, out color);
+		}
+
+		return TryFromHex(trimmed, out color);
+	}
+
+	private static bool TryParseRgb(string text, out LuxaforColor color)
+	{
+		color = default;
+
+		var parts = text.Split(',');
+		if (parts.Length != 3)
+		{
+			return false;
+		}
+
+		if (!TryParseChannel(parts[0], out var r) ||
+			!TryParseChannel(parts[1], out var g) ||
+			!TryParseChannel(parts[2], out var b))
+		{
+			return false;
+		}
+
+		color = new LuxaforColor(r, g, b);
+		return true;
+	}
+
+	/// <remarks>
+	/// Parsed with the invariant culture: "255" means 255 everywhere, and a channel is never a
+	/// culture-dependent number.
+	/// </remarks>
+	private static bool TryParseChannel(string text, out byte value)
+		=> byte.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out value);
 
 	/// <summary>
 	/// Parses a hex color string into a <see cref="LuxaforColor"/>.
@@ -144,17 +260,17 @@ public readonly record struct LuxaforColor(byte R, byte G, byte B)
 
 #if NET8_0_OR_GREATER
 	/// <summary>
-	/// Parses a hex color string. Equivalent to <see cref="FromHex"/>; the provider is ignored,
-	/// because a hex color does not vary by culture.
+	/// Parses a color. Equivalent to <see cref="Parse(string)"/>; the provider is ignored, because
+	/// none of the accepted forms varies by culture.
 	/// </summary>
-	public static LuxaforColor Parse(string s, IFormatProvider? provider) => FromHex(s);
+	public static LuxaforColor Parse(string s, IFormatProvider? provider) => Parse(s);
 
 	/// <summary>
-	/// Tries to parse a hex color string. Equivalent to <see cref="TryFromHex"/>; the provider is
-	/// ignored, because a hex color does not vary by culture.
+	/// Tries to parse a color. Equivalent to <see cref="TryParse(string?, out LuxaforColor)"/>; the
+	/// provider is ignored, because none of the accepted forms varies by culture.
 	/// </summary>
 	public static bool TryParse(string? s, IFormatProvider? provider, out LuxaforColor result)
-		=> TryFromHex(s, out result);
+		=> TryParse(s, out result);
 #endif
 
 	private static double Clamp01(double value) => value < 0 ? 0 : value > 1 ? 1 : value;

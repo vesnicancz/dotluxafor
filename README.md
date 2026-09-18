@@ -12,7 +12,7 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 
 | Project | Description |
 |---------|-------------|
-| [`src/DotLuxafor`](src/DotLuxafor) | The library, published to NuGet as [`DotLuxafor`](https://www.nuget.org/packages/DotLuxafor). Targets `netstandard2.0` and `net8.0`. |
+| [`src/DotLuxafor`](src/DotLuxafor) | The library, published to NuGet as [`DotLuxafor`](https://www.nuget.org/packages/DotLuxafor). Targets `netstandard2.0`, `net8.0` and `net10.0`. |
 | [`src/DotLuxafor.Cli`](src/DotLuxafor.Cli) | Command-line interface for driving a device from a shell or a script. |
 | [`src/DotLuxafor.ControlPanel`](src/DotLuxafor.ControlPanel) | Avalonia desktop app for controlling a device and watching its events. |
 
@@ -29,9 +29,9 @@ using var device = LuxaforDevices.TryOpen();
 await device!.SetColorAsync(LuxaforColor.Red);
 ```
 
-The full API documentation — commands, event monitoring, dependency injection, and how to diagnose a
-device the operating system refuses to open — lives in the
-[library README](src/DotLuxafor/README.md).
+The full API documentation — commands, choosing between several devices, software animations, event
+monitoring, dependency injection, and how to diagnose a device the operating system refuses to open —
+lives in the [library README](src/DotLuxafor/README.md).
 
 ## Building
 
@@ -40,7 +40,7 @@ dotnet build
 dotnet test
 ```
 
-Requires the .NET 10 SDK (see [`global.json`](global.json)). The library itself targets
+Requires the .NET 10 SDK (see [`global.json`](global.json)). The library itself also targets
 `netstandard2.0` and `net8.0`, so consumers do not need .NET 10.
 
 ## License
