@@ -15,6 +15,7 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Dependency injection** integration built in (net8.0+), no extra package needed, with the
   background service pinned to a chosen device by serial number, path or your own rule
 - **Hotplug aware**: wait for a device to be plugged in instead of polling for it
+- **Reopens itself**: an opt-in device wrapper that reopens a stale handle and sends the command again
 - **Software animations**: fades between arbitrary colors, brightness pulses, scoped colors
 - **Predefined colors**, parsing by name, hex (`#RRGGBB`, `#RGB`) or `r,g,b`, and configuration binding
 - Targets `netstandard2.0`, `net8.0` and `net10.0`
@@ -414,6 +415,50 @@ The reliable pattern is to act on the exception rather than to poll: catch
 the command — otherwise the command is lost until whatever drives the device next comes round.
 `AddLuxaforHostedService` does this for the device it holds, on its reconnect timer.
 
+### Letting the device reopen itself
+
+`OpenReconnecting` wraps that pattern, so a handle that goes stale — after a suspend, a
+re-enumeration, or a cable pulled out and put back — costs a command instead of a state:
+
+```csharp
+using var device = LuxaforDevices.OpenReconnecting(logger).Device!;   // logger optional
+await device.SetColorAsync(LuxaforColor.Red);                         // survives a stale handle
+```
+
+It is a plain `ILuxaforDevice`, so everything else — animations, scopes, monitoring — works on it
+unchanged. Through DI, wrap what the manager gives you:
+
+```csharp
+var device = manager.OpenReconnecting(logger).Device;                 // or .OpenReconnecting(descriptor, logger)
+```
+
+**It replays state, not events in time.** `SetColorAsync`, `FadeToAsync` and `TurnOffAsync` are sent
+again after the reopen: whether the second attempt lands 50ms or 2s later, the device ends up where
+it was asked to be. `StrobeAsync`, `WaveAsync` and `PlayPatternAsync` reopen the device — so the next
+command works — but let `LuxaforDeviceDisconnectedException` reach you, because replaying "flash
+three times" after an unknown pause either duplicates an alert the user half saw or arrives after
+the thing it announced is over. Exactly one replay: a second failure means the device really is
+gone, and you are told.
+
+**It remembers what the device cannot.** A reopened device is a new object with no history, so
+`LastColor` and `DeviceInfo` live on the wrapper. That is not tidiness: `FadeOverAsync(to, duration)`
+and `SetColorScopedAsync(color)` both start from `LastColor`, so without it a fade would start from
+black and a scope would "restore" `Off`. The remembered color is re-**sent** after a reopen rather
+than assumed, because a device that was physically replugged came back dark and there is no way to
+tell that from a handle that merely went stale.
+
+**What it will not do.** It reopens only the device at its own `DevicePath` — a device that came back
+on a different path is not provably the same hardware, since serial numbers are `null` on some
+platforms. It does not resurrect monitoring: `ObserveAsync` still ends on
+`LuxaforEvent.Disconnected`, because events between the disconnect and the reopen are lost and
+continuing silently would hide that; start a new enumeration and it runs against the current device.
+And per-LED state is not restored, because after a per-LED command there is no single color to
+restore.
+
+The hosted service does not hand out a reconnecting device: it already reopens on its own timer, and
+two layers both reopening is harder to reason about than either alone. Wrap it yourself if you want
+per-command reopening on top.
+
 ## API Reference
 
 ### Interfaces
@@ -510,6 +555,22 @@ opener.Setup(o => o.Open()).Returns(DeviceOpenResult.Opened(fakeDevice, descript
 `DeviceOpenResult`'s factory methods — `Opened`, `NotFound`, `NotMatched`, `Failure` — are public
 precisely so an implementation outside the library can return one.
 
+#### ReconnectingLuxaforDevice
+
+An `ILuxaforDevice` that reopens the device underneath it when a command finds the handle dead.
+Built by `OpenReconnecting`, or directly:
+
+```csharp
+new ReconnectingLuxaforDevice(manager, openedDevice, logger);   // device must have a Descriptor
+```
+
+| Member | Description |
+|--------|-------------|
+| `Descriptor` | The device it reopens; fixed at construction and the same across every reopen |
+| `LastColor` | The remembered resting color, carried across reopens and re-sent after one |
+| `DeviceInfo` | The remembered identification, refreshed after a reopen when the device answers |
+| `IsConnected` | Whether a handle is open right now — `false` after a reopen that failed |
+
 #### ILuxaforDeviceAccessor
 
 Registered by `AddLuxaforHostedService`. See [Dependency Injection](#dependency-injection).
@@ -547,6 +608,16 @@ Animations, on `ILuxaforCommands` (see [Software Animations](#software-animation
 | `PulseAsync(color, period, cycles, target, ct)` | Brightness pulse; `cycles: 0` runs until cancelled |
 | `SetColorScopedAsync(color, target, ct)` | Sets a color and restores the previous one on dispose |
 | `SetColorScopedAsync(color, restoreTo, target, ct)` | Sets a color and restores a chosen one on dispose |
+
+Opening, on `ILuxaforDeviceManager` (see [Letting the device reopen itself](#letting-the-device-reopen-itself)):
+
+| Method | Description |
+|--------|-------------|
+| `OpenReconnecting(logger)` | Opens the first device, wrapped so it reopens itself |
+| `OpenReconnecting(descriptor, logger)` | Opens a specific device, wrapped so it reopens itself |
+
+Both return a `DeviceOpenResult`, and pass a failed open through unchanged. The same two are on
+`LuxaforDevices` for use without DI.
 
 RGB byte overloads are available as extension methods on `ILuxaforCommands`:
 

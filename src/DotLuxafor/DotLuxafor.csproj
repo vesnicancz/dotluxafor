@@ -27,6 +27,9 @@
 
   <ItemGroup>
     <PackageReference Include="HidSharp" />
+    <!-- Logging only: ReconnectingLuxaforDevice reports each reopen, and every target can have it.
+         The DI/hosting packages below stay conditioned on the frameworks that support them. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
