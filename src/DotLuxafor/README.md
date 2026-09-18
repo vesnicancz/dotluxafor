@@ -1,4 +1,4 @@
-# Luxafor.HidSharp
+# DotLuxafor
 
 .NET library for controlling [Luxafor](https://luxafor.com/) LED devices via HID using [HidSharp](https://github.com/IntegratedCircuits/HidSharp).
 
@@ -12,26 +12,20 @@ Supports **Luxafor Flag**, **Bluetooth Pro** (via USB dongle), **Mute Button**, 
 - **Event streaming** via `IAsyncEnumerable<LuxaforEvent>` — battery level, mute button, pattern completion
 - **Device identification**: Auto-detect device type and serial number
 - **Multi-device support**: Control multiple Luxafor devices simultaneously
-- **Dependency injection** integration via [Luxafor.HidSharp.DependencyInjection](https://www.nuget.org/packages/Luxafor.HidSharp.DependencyInjection)
+- **Dependency injection** integration built in (net8.0+), no extra package needed
 - **Predefined colors** and hex color parsing
 - Targets `netstandard2.0` and `net8.0`
 
 ## Installation
 
 ```
-dotnet add package Luxafor.HidSharp
-```
-
-For DI integration:
-
-```
-dotnet add package Luxafor.HidSharp.DependencyInjection
+dotnet add package DotLuxafor
 ```
 
 ## Quick Start
 
 ```csharp
-using Luxafor.HidSharp;
+using DotLuxafor;
 
 using var device = LuxaforDevices.TryOpen();
 if (device is null)
@@ -75,9 +69,6 @@ Monitor device events using `await foreach`. Events are delivered as a strongly-
 
 ```csharp
 using var device = LuxaforDevices.TryOpen()!;
-
-// Request device identification (response arrives as an event)
-await device.RequestDeviceInfoAsync();
 
 // Stream events — monitoring starts automatically
 await foreach (var evt in device.ObserveAsync(cancellationToken))
@@ -225,8 +216,8 @@ All methods default to `LedTarget.All` when `target` is omitted.
 | Member | Description |
 |--------|-------------|
 | `IsConnected` | Whether the device connection is active |
-| `DeviceInfo` | Device type and serial (available after identification) |
-| `RequestDeviceInfoAsync(ct)` | Requests device type and serial number |
+| `DeviceInfo` | Device type and serial, or `null` until identified |
+| `RequestDeviceInfoAsync(ct)` | Fills `DeviceInfo` with the device type and serial number |
 
 #### ILuxaforMonitor
 
@@ -292,9 +283,32 @@ color.ToHex() // → "#FF8800"
 | Luxafor Mute Button | Yes | Yes (via dongle) | Yes |
 | Luxafor Smart Button | Yes | Yes (via dongle) | No |
 
+## Device Identification
+
+`RequestDeviceInfoAsync()` fills the `DeviceInfo` property; read it once the call returns:
+
+```csharp
+await device.RequestDeviceInfoAsync();
+
+if (device.DeviceInfo is { } info)
+{
+    Console.WriteLine($"{info.Type}, serial {info.SerialNumber}");
+}
+```
+
+The value is read from a HID feature report when the device supports one, and from the USB HID
+descriptor otherwise. It does **not** arrive as a `DeviceIdentified` event — that event only appears
+when the device pushes an identification report of its own accord during monitoring.
+
 ## Thread Safety
 
-All command methods are thread-safe and can be called concurrently with event monitoring. Events from `ObserveAsync()` are delivered on a background thread — UI marshalling is the caller's responsibility.
+All command methods are thread-safe and can be called concurrently with event monitoring, and
+`DeviceInfo` is safe to read while monitoring updates it. Events from `ObserveAsync()` are delivered
+on a background thread — UI marshalling is the caller's responsibility.
+
+Events are buffered (64 deep) and delivered in order. A consumer that falls further behind than that
+applies backpressure to the reader instead of losing events, so keep the body of the `await foreach`
+short and hand slow work to another task.
 
 ## License
 

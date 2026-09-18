@@ -243,6 +243,21 @@ public class LuxaforDeviceTests
             device.RequestDeviceInfoAsync(ct));
     }
 
+    [Fact]
+    public async Task RequestDeviceInfoAsync_WhenGetFeatureThrowsObjectDisposed_Propagates()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        _stream.Setup(s => s.GetFeature(It.IsAny<byte[]>())).Throws(new ObjectDisposedException("stream"));
+
+        // A disposed stream is not a "this device has no feature report" quirk, so it must not be
+        // swallowed and turned into a bogus descriptor-based DeviceInfo.
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => device.RequestDeviceInfoAsync(ct));
+
+        Assert.Null(device.DeviceInfo);
+        _stream.Verify(s => s.GetProductName(), Times.Never);
+    }
+
     #endregion
 
     #region ObserveAsync
@@ -510,6 +525,55 @@ public class LuxaforDeviceTests
 
         var disconnected = Assert.Single(events);
         Assert.IsType<LuxaforEvent.Disconnected>(disconnected);
+    }
+
+    [Fact]
+    public async Task ObserveAsync_SlowConsumer_ReceivesEveryEventInOrder()
+    {
+        const int eventCount = 200; // well past the 64-event buffer
+
+        var ct = TestContext.Current.CancellationToken;
+        var device = CreateDevice();
+        var produced = 0;
+
+        // Dongle reports carrying an increasing battery level, so every event is distinguishable.
+        _stream.Setup(s => s.Read(It.IsAny<byte[]>(), 0, LuxaforDevice.ReportLength))
+            .Returns((byte[] buf, int _, int _) =>
+            {
+                var index = Interlocked.Increment(ref produced) - 1;
+                if (index >= eventCount)
+                {
+                    throw new TimeoutException();
+                }
+
+                Array.Clear(buf, 0, buf.Length);
+                buf[1] = 0x41;
+                buf[6] = (byte)(index % 101);
+                return LuxaforDevice.ReportLength;
+            });
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+        var levels = new List<int>();
+
+        await foreach (var evt in device.ObserveAsync(cts.Token))
+        {
+            if (levels.Count == 0)
+            {
+                // Let the reader run ahead and fill the buffer, so the rest of this
+                // enumeration drains a channel that had to apply backpressure.
+                await Task.Delay(100, ct);
+            }
+
+            levels.Add(Assert.IsType<LuxaforEvent.DongleDataReceived>(evt).Info.BatteryLevel);
+
+            if (levels.Count == eventCount)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(Enumerable.Range(0, eventCount).Select(i => i % 101), levels);
     }
 
     #endregion
