@@ -22,6 +22,21 @@ public class LuxaforDeviceManagerTests
     }
 
     [Fact]
+    public void Open_NoDevices_ReturnsNotFoundWithoutError()
+    {
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(Enumerable.Empty<HidDevice>());
+
+        var result = CreateManager().Open();
+
+        Assert.Equal(DeviceOpenStatus.NotFound, result.Status);
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Device);
+        Assert.Null(result.Error);
+        Assert.Contains("No Luxafor device found", result.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OpenAll_NoDevices_ReturnsEmptyList()
     {
         _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))

@@ -17,7 +17,13 @@ public static class LuxaforDevices
 	/// Tries to find and open the first connected Luxafor device.
 	/// Returns <c>null</c> if no device is found or cannot be opened.
 	/// </summary>
+	/// <remarks>Use <see cref="Open"/> to find out which of the two happened.</remarks>
 	public static ILuxaforDevice? TryOpen() => Manager.TryOpen();
+
+	/// <summary>
+	/// Tries to find and open the first connected Luxafor device, reporting why the attempt failed.
+	/// </summary>
+	public static DeviceOpenResult Open() => Manager.Open();
 
 	/// <summary>
 	/// Opens all connected Luxafor devices.
