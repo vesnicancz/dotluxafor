@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using DotLuxafor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -13,7 +12,14 @@ public class LuxaforHostedServiceTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
     private readonly Mock<ILuxaforDeviceManager> _deviceManager = new();
-    private readonly ILogger<LuxaforHostedService> _logger = NullLogger<LuxaforHostedService>.Instance;
+    private readonly RecordingLogger _logger = new();
+
+    private static DeviceOpenResult Opened(ILuxaforDevice device) => DeviceOpenResult.Opened(device);
+
+    private static DeviceOpenResult NotFound() => DeviceOpenResult.NotFound();
+
+    private static DeviceOpenResult Failure(DeviceOpenStatus status) =>
+        DeviceOpenResult.Failure(status, new IOException("The device is in use."));
 
     private LuxaforHostedService CreateService(LuxaforOptions? options = null)
     {
@@ -57,14 +63,14 @@ public class LuxaforHostedServiceTests
     public async Task ExecuteAsync_NoAutoReconnect_ExitsAfterFirstAttempt()
     {
         var ct = TestContext.Current.CancellationToken;
-        _deviceManager.Setup(m => m.TryOpen()).Returns((ILuxaforDevice?)null);
+        _deviceManager.Setup(m => m.Open()).Returns(NotFound());
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
         await RunToCompletionAsync(service, ct);
 
         // The loop has exited, so the count can no longer change.
-        _deviceManager.Verify(m => m.TryOpen(), Times.Once);
+        _deviceManager.Verify(m => m.Open(), Times.Once);
 
         await service.StopAsync(ct);
     }
@@ -73,11 +79,11 @@ public class LuxaforHostedServiceTests
     public async Task ExecuteAsync_WithAutoReconnect_RetriesOnNoDevice()
     {
         var ct = TestContext.Current.CancellationToken;
-        var tryOpenCount = 0;
-        _deviceManager.Setup(m => m.TryOpen()).Returns(() =>
+        var openCount = 0;
+        _deviceManager.Setup(m => m.Open()).Returns(() =>
         {
-            Interlocked.Increment(ref tryOpenCount);
-            return null;
+            Interlocked.Increment(ref openCount);
+            return NotFound();
         });
 
         var options = new LuxaforOptions
@@ -88,10 +94,10 @@ public class LuxaforHostedServiceTests
         var service = CreateService(options);
 
         await service.StartAsync(ct);
-        await WaitUntilAsync(() => Volatile.Read(ref tryOpenCount) >= 2, ct);
+        await WaitUntilAsync(() => Volatile.Read(ref openCount) >= 2, ct);
         await service.StopAsync(ct);
 
-        _deviceManager.Verify(m => m.TryOpen(), Times.AtLeast(2));
+        _deviceManager.Verify(m => m.Open(), Times.AtLeast(2));
     }
 
     [Fact]
@@ -100,7 +106,7 @@ public class LuxaforHostedServiceTests
         var ct = TestContext.Current.CancellationToken;
         var device = new Mock<ILuxaforDevice>();
         device.Setup(d => d.IsConnected).Returns(true);
-        _deviceManager.Setup(m => m.TryOpen()).Returns(device.Object);
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(device.Object));
 
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
@@ -120,7 +126,7 @@ public class LuxaforHostedServiceTests
         device.Setup(d => d.IsConnected).Returns(true);
         device.Setup(d => d.ObserveAsync(It.IsAny<CancellationToken>()))
             .Returns(EmptyAsyncEnumerable());
-        _deviceManager.Setup(m => m.TryOpen()).Returns(device.Object);
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(device.Object));
 
         var options = new LuxaforOptions
         {
@@ -149,9 +155,9 @@ public class LuxaforHostedServiceTests
         var device1Disposals = 0;
         device1.Setup(d => d.Dispose()).Callback(() => Interlocked.Increment(ref device1Disposals));
 
-        var tryOpenCount = 0;
-        _deviceManager.Setup(m => m.TryOpen()).Returns(() =>
-            Interlocked.Increment(ref tryOpenCount) <= 1 ? device1.Object : device2.Object);
+        var openCount = 0;
+        _deviceManager.Setup(m => m.Open()).Returns(() =>
+            Opened(Interlocked.Increment(ref openCount) <= 1 ? device1.Object : device2.Object));
 
         var options = new LuxaforOptions
         {
@@ -162,11 +168,11 @@ public class LuxaforHostedServiceTests
 
         await service.StartAsync(ct);
         await WaitUntilAsync(
-            () => Volatile.Read(ref tryOpenCount) >= 2 && Volatile.Read(ref device1Disposals) >= 1,
+            () => Volatile.Read(ref openCount) >= 2 && Volatile.Read(ref device1Disposals) >= 1,
             ct);
         await service.StopAsync(ct);
 
-        _deviceManager.Verify(m => m.TryOpen(), Times.AtLeast(2));
+        _deviceManager.Verify(m => m.Open(), Times.AtLeast(2));
         device1.Verify(d => d.Dispose(), Times.AtLeastOnce);
     }
 
@@ -176,7 +182,7 @@ public class LuxaforHostedServiceTests
         var ct = TestContext.Current.CancellationToken;
         var device = new Mock<ILuxaforDevice>();
         device.Setup(d => d.IsConnected).Returns(true);
-        _deviceManager.Setup(m => m.TryOpen()).Returns(device.Object);
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(device.Object));
 
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
@@ -189,17 +195,17 @@ public class LuxaforHostedServiceTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenTryOpenThrows_LogsAndContinues()
+    public async Task ExecuteAsync_WhenOpenThrows_LogsAndContinues()
     {
         var ct = TestContext.Current.CancellationToken;
         var callCount = 0;
-        _deviceManager.Setup(m => m.TryOpen()).Returns(() =>
+        _deviceManager.Setup(m => m.Open()).Returns(() =>
         {
             if (Interlocked.Increment(ref callCount) <= 2)
             {
                 throw new Exception("USB error");
             }
-            return null;
+            return NotFound();
         });
 
         var options = new LuxaforOptions
@@ -227,7 +233,7 @@ public class LuxaforHostedServiceTests
             .Returns(EventsAsyncEnumerable(
                 new LuxaforEvent.DeviceIdentified(new DeviceInfo(DeviceType.Bluetooth, 12345)),
                 new LuxaforEvent.Disconnected()));
-        _deviceManager.Setup(m => m.TryOpen()).Returns(device.Object);
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(device.Object));
 
         var options = new LuxaforOptions
         {
@@ -249,16 +255,61 @@ public class LuxaforHostedServiceTests
         var ct = TestContext.Current.CancellationToken;
         var device = new Mock<ILuxaforDevice>();
         device.Setup(d => d.IsConnected).Returns(true);
-        _deviceManager.Setup(m => m.TryOpen()).Returns(device.Object);
+        _deviceManager.Setup(m => m.Open()).Returns(Opened(device.Object));
 
         var service = CreateService(new LuxaforOptions { AutoReconnect = false });
 
         await service.StartAsync(ct);
         await RunToCompletionAsync(service, ct);
 
-        _deviceManager.Verify(m => m.TryOpen(), Times.Once);
+        _deviceManager.Verify(m => m.Open(), Times.Once);
 
         await service.StopAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenDeviceCannotBeOpened_LogsReasonOncePerStatus()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var openCount = 0;
+        _deviceManager.Setup(m => m.Open()).Returns(() =>
+        {
+            Interlocked.Increment(ref openCount);
+            return Failure(DeviceOpenStatus.AccessDenied);
+        });
+
+        var options = new LuxaforOptions
+        {
+            AutoReconnect = true,
+            ReconnectDelay = TimeSpan.FromMilliseconds(10)
+        };
+        var service = CreateService(options);
+
+        await service.StartAsync(ct);
+        await WaitUntilAsync(() => Volatile.Read(ref openCount) >= 3, ct);
+        await service.StopAsync(ct);
+
+        // The reason does not change between retries, so it is logged once, not once per attempt.
+        var warnings = _logger.Entries.Where(e => e.Level == LogLevel.Warning).ToList();
+        Assert.Single(warnings);
+        Assert.Contains("denied access", warnings[0].Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenNoDeviceIsConnected_DoesNotLogWarning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _deviceManager.Setup(m => m.Open()).Returns(NotFound());
+
+        var service = CreateService(new LuxaforOptions { AutoReconnect = false });
+
+        await service.StartAsync(ct);
+        await RunToCompletionAsync(service, ct);
+        await service.StopAsync(ct);
+
+        // An unplugged device is normal, so it stays at debug level.
+        Assert.DoesNotContain(_logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains(_logger.Entries, e => e.Level == LogLevel.Debug);
     }
 
     private static async IAsyncEnumerable<LuxaforEvent> EmptyAsyncEnumerable()
@@ -275,4 +326,35 @@ public class LuxaforHostedServiceTests
             yield return evt;
         }
     }
+}
+
+/// <summary>Captures log entries so tests can assert on what the service reported.</summary>
+internal sealed class RecordingLogger : ILogger<LuxaforHostedService>
+{
+    private readonly List<LogEntry> _entries = new();
+
+    public IReadOnlyList<LogEntry> Entries
+    {
+        get
+        {
+            lock (_entries)
+            {
+                return _entries.ToList();
+            }
+        }
+    }
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    {
+        lock (_entries)
+        {
+            _entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
+        }
+    }
+
+    internal sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 }

@@ -28,11 +28,12 @@ public sealed class DeviceService : IDisposable
 
         StopMonitoring();
         _device?.Dispose();
-        _device = new LuxaforDeviceManager().TryOpen();
+        var openResult = new LuxaforDeviceManager().Open();
+        _device = openResult.Device;
 
         if (_device is null)
         {
-            Log("No Luxafor device found");
+            Log(openResult.Description);
             return false;
         }
 

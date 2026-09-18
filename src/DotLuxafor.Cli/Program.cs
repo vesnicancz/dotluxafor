@@ -47,10 +47,11 @@ internal static class Program
 
 		string command = args[0].ToLowerInvariant();
 
-		using ILuxaforDevice? device = LuxaforDevices.TryOpen();
+		DeviceOpenResult openResult = LuxaforDevices.Open();
+		using ILuxaforDevice? device = openResult.Device;
 		if (device is null)
 		{
-			Console.Error.WriteLine("Error: No Luxafor device found.");
+			Console.Error.WriteLine($"Error: {openResult.Description}");
 			return 2;
 		}
 
