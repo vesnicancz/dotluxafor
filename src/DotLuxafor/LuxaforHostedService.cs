@@ -17,6 +17,7 @@ public sealed class LuxaforHostedService : BackgroundService
     private readonly ILogger<LuxaforHostedService> _logger;
     private ILuxaforDevice? _device;
     private Task? _monitorTask;
+    private DeviceOpenStatus? _lastOpenFailure;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LuxaforHostedService"/> class.
@@ -46,16 +47,22 @@ public sealed class LuxaforHostedService : BackgroundService
                 if (_device == null || !_device.IsConnected)
                 {
                     await CleanupDeviceAsync().ConfigureAwait(false);
-                    _device = _deviceManager.TryOpen();
+                    var openResult = _deviceManager.Open();
+                    _device = openResult.Device;
 
                     if (_device != null)
                     {
+                        _lastOpenFailure = null;
                         _logger.LogInformation("Luxafor device connected.");
 
                         if (_options.AutoMonitor)
                         {
                             _monitorTask = MonitorDeviceAsync(_device, stoppingToken);
                         }
+                    }
+                    else
+                    {
+                        LogOpenFailure(openResult);
                     }
                 }
 
@@ -75,6 +82,29 @@ public sealed class LuxaforHostedService : BackgroundService
                 _logger.LogError(ex, "Error in Luxafor hosted service.");
                 await Task.Delay(_options.ReconnectDelay, stoppingToken).ConfigureAwait(false);
             }
+        }
+    }
+
+    /// <summary>
+    /// Logs why the device could not be opened. Reconnect attempts repeat on a timer,
+    /// so only a change of reason is logged to keep the log readable.
+    /// </summary>
+    private void LogOpenFailure(DeviceOpenResult result)
+    {
+        if (_lastOpenFailure == result.Status)
+        {
+            return;
+        }
+
+        _lastOpenFailure = result.Status;
+
+        if (result.Status == DeviceOpenStatus.NotFound)
+        {
+            _logger.LogDebug("{Reason}", result.Description);
+        }
+        else
+        {
+            _logger.LogWarning(result.Error, "{Reason}", result.Description);
         }
     }
 

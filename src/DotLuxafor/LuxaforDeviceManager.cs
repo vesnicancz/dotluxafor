@@ -23,20 +23,18 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
     }
 
     /// <inheritdoc />
-    public ILuxaforDevice? TryOpen()
+    public ILuxaforDevice? TryOpen() => Open().Device;
+
+    /// <inheritdoc />
+    public DeviceOpenResult Open()
     {
         var device = _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId).FirstOrDefault();
         if (device == null)
         {
-            return null;
+            return DeviceOpenResult.NotFound();
         }
 
-        if (!device.TryOpen(out var stream))
-        {
-            return null;
-        }
-
-        return new LuxaforDevice(stream);
+        return OpenDevice(device);
     }
 
     /// <inheritdoc />
@@ -45,12 +43,30 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
         var devices = new List<ILuxaforDevice>();
         foreach (var hidDevice in _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
         {
-            if (hidDevice.TryOpen(out var stream))
+            var result = OpenDevice(hidDevice);
+            if (result.Device != null)
             {
-                devices.Add(new LuxaforDevice(stream));
+                devices.Add(result.Device);
             }
         }
         return devices;
+    }
+
+    /// <summary>
+    /// Opens a single HID device, keeping the exception HidSharp would otherwise swallow.
+    /// <see cref="HidDevice.TryOpen(out HidStream)"/> reports only a bool, which is why a
+    /// device blocked by the OS was indistinguishable from no device at all.
+    /// </summary>
+    private static DeviceOpenResult OpenDevice(HidDevice hidDevice)
+    {
+        if (hidDevice.TryOpen(new OpenConfiguration(), out DeviceStream? deviceStream, out Exception? error)
+            && deviceStream is HidStream hidStream)
+        {
+            return DeviceOpenResult.Opened(new LuxaforDevice(hidStream));
+        }
+
+        deviceStream?.Dispose();
+        return DeviceOpenResult.Failure(HidOpenFailure.Classify(error), error);
     }
 
     /// <inheritdoc />
