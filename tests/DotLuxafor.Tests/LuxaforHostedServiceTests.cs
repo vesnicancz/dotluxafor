@@ -7,6 +7,16 @@ using Moq;
 
 namespace DotLuxafor.Tests;
 
+/// <summary>
+/// These tests drive a BackgroundService and assert on work that happens on the
+/// thread pool after a fixed delay. Running them alongside the rest of the suite
+/// starves those continuations on machines with few cores, so they get a
+/// collection of their own.
+/// </summary>
+[CollectionDefinition(DisableParallelization = true)]
+public sealed class HostedServiceCollection;
+
+[Collection(typeof(HostedServiceCollection))]
 public class LuxaforHostedServiceTests
 {
     private readonly Mock<ILuxaforDeviceManager> _deviceManager = new();
