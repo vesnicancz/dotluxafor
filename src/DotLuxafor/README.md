@@ -151,7 +151,7 @@ public class StatusService(ILuxaforDeviceManager manager)
 
 | Service | Lifetime | Description |
 |---------|----------|-------------|
-| `ILuxaforDeviceManager` | Singleton | Device discovery (TryOpen, OpenAll, IsDevicePresent) |
+| `ILuxaforDeviceManager` | Singleton | Device discovery (TryOpen, Open, OpenAll, IsDevicePresent) |
 | `IOptions<LuxaforOptions>` | Singleton | Configuration options |
 
 No device is opened during registration — this is safe even when no device is connected.
@@ -172,6 +172,36 @@ bool present = LuxaforDevices.IsDevicePresent();
 var manager = new LuxaforDeviceManager();
 using var device = manager.TryOpen();
 ```
+
+### Diagnosing a failed open
+
+`TryOpen()` returns `null` both when no device is plugged in and when one is plugged in but the
+operating system refuses to open it. Use `Open()` when you need to tell those apart:
+
+```csharp
+var result = LuxaforDevices.Open();
+
+if (result.Device is null)
+{
+    // e.g. "A Luxafor device is connected, but the operating system denied access to it.
+    //       On macOS, HID access requires the Input Monitoring permission ..."
+    Console.Error.WriteLine(result.Description);
+    return;
+}
+
+using var device = result.Device;
+```
+
+`result.Status` is one of `Opened`, `NotFound`, `AccessDenied`, `InUse` or `Failed`, and
+`result.Error` carries the original exception from the HID stack.
+
+Platform notes for `AccessDenied`:
+
+| Platform | Cause | Fix |
+|----------|-------|-----|
+| macOS | HID access is gated by TCC | Grant Input Monitoring in System Settings > Privacy & Security. App Sandbox blocks IOKit HID access outright, regardless of that setting. |
+| Linux | `/dev/hidraw*` is root-only by default | Add a udev rule for `04d8:f372`. |
+| Windows | Another process holds the device | Reported as `InUse`; close the official Luxafor software. |
 
 ## API Reference
 
