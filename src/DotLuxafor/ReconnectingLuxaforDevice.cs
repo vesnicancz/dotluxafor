@@ -265,7 +265,37 @@ public sealed class ReconnectingLuxaforDevice : ILuxaforDevice
 			await command(reopened).ConfigureAwait(false);
 			Capture(reopened);
 		}
+		catch (ObjectDisposedException ex) when (WasDisposedByAReopen(device))
+		{
+			// Another command's reopen closed this handle while this command was inside it. Nobody
+			// outside let go of anything, so this is a stale handle like any other — the caller did
+			// nothing wrong and should not be told they disposed a device they still hold.
+			var reopened = await ReopenAsync(device, restoreColor: !replay, cancellationToken).ConfigureAwait(false);
+
+			if (!replay || reopened == null)
+			{
+				// Rethrowing the ObjectDisposedException would blame the caller for a handle this
+				// wrapper closed. What actually happened is the device going away.
+				throw new LuxaforDeviceDisconnectedException(Descriptor, ex);
+			}
+
+			await command(reopened).ConfigureAwait(false);
+			Capture(reopened);
+		}
 	}
+
+	/// <summary>
+	/// Whether an <see cref="ObjectDisposedException"/> from <paramref name="used"/> is this
+	/// wrapper's doing rather than the caller's.
+	/// </summary>
+	/// <remarks>
+	/// Disposal normally means the caller let go, and that must reach them unchanged. But a reopen
+	/// disposes the old handle, and a command that was already inside it sees the same exception
+	/// through no fault of its own. Two things separate them: this wrapper is still alive, and the
+	/// handle that threw is no longer the current one.
+	/// </remarks>
+	private bool WasDisposedByAReopen(ILuxaforDevice used)
+		=> Volatile.Read(ref _disposed) == 0 && !ReferenceEquals(Current, used);
 
 	/// <summary>
 	/// Closes a dead handle and opens the device again. Returns the new device, or <c>null</c> when

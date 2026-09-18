@@ -314,10 +314,63 @@ public class ReconnectingLuxaforDeviceTests
         first.Gate.SetResult(true);
         await Task.WhenAll(one, two);
 
-        // The second command must not throw away the handle the first just opened.
+        // The losing command sees either the disconnect or the ObjectDisposedException from the
+        // handle the winner closed under it — both are the same stale handle, and neither is the
+        // caller's doing, so both end with the command landing on the new device.
         _manager.Verify(m => m.Open(Descriptor), Times.Once);
         Assert.Equal(2, second.Commands.Count(c => c.StartsWith("SetColor", StringComparison.Ordinal)));
         Assert.False(second.IsDisposed);
+    }
+
+    /// <summary>
+    /// A command already inside the device when another command's reopen closes that handle sees an
+    /// <see cref="ObjectDisposedException"/> — the exception that normally means "you disposed
+    /// this". Here nobody outside disposed anything, so it is the same stale handle as any other
+    /// and the command is carried over to the new device rather than blamed on the caller.
+    /// </summary>
+    [Fact]
+    public async Task ACommandInFlightWhenAnotherReopens_LandsOnTheNewDevice()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = Device();
+        var second = Device();
+        Reopens(second);
+        using var device = Wrap(first);
+
+        // One command parked inside the old device, and the world moving on around it.
+        first.Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        first.GatedCommands = 1;
+        first.HasGoneAway = true;
+        var parked = device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+        await device.SetColorAsync(LuxaforColor.Green, cancellationToken: ct);
+        Assert.True(first.IsDisposed);
+
+        first.Gate.SetResult(true);
+        await parked;
+
+        Assert.Contains(second.Commands, c => c.StartsWith("SetColor(#FF0000", StringComparison.Ordinal));
+        _manager.Verify(m => m.Open(Descriptor), Times.Once);
+    }
+
+    /// <summary>
+    /// The same thing when the wrapper is gone: disposal really was the caller letting go, and that
+    /// has to reach them as itself rather than being retried against a device nobody owns.
+    /// </summary>
+    [Fact]
+    public async Task ACommandInFlightWhenTheWrapperIsDisposed_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = Device();
+        Reopens(Device());
+        var device = Wrap(first);
+
+        first.Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parked = device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+        device.Dispose();
+        first.Gate.SetResult(true);
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => parked);
+        _manager.Verify(m => m.Open(Descriptor), Times.Never);
     }
 
     [Fact]

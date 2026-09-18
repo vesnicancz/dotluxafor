@@ -25,6 +25,13 @@ internal sealed class FakeLuxaforDevice : ILuxaforDevice
 	/// <summary>When set, commands wait on it before doing anything — for exercising concurrency.</summary>
 	public TaskCompletionSource<bool>? Gate { get; set; }
 
+	/// <summary>
+	/// How many commands <see cref="Gate"/> holds. Leaving it at every command makes the device
+	/// stop dead; setting it to one lets a test park a single command inside the device and then
+	/// carry on around it.
+	/// </summary>
+	public int GatedCommands { get; set; } = int.MaxValue;
+
 	/// <summary>What the device answers <see cref="RequestDeviceInfoAsync"/> with.</summary>
 	public DeviceInfo? IdentifiesAs { get; set; }
 
@@ -99,9 +106,11 @@ internal sealed class FakeLuxaforDevice : ILuxaforDevice
 	private void RecordRestingColor(LuxaforColor color, LedTarget target)
 		=> LastColor = target == LedTarget.All ? color : (LuxaforColor?)null;
 
+	private int _gated;
+
 	private async Task RunAsync(string command, Action? onSuccess)
 	{
-		if (Gate != null)
+		if (Gate != null && Interlocked.Increment(ref _gated) <= GatedCommands)
 		{
 			await Gate.Task.ConfigureAwait(false);
 		}

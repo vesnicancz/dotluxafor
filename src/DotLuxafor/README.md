@@ -447,6 +447,10 @@ black and a scope would "restore" `Off`. The remembered color is re-**sent** aft
 than assumed, because a device that was physically replugged came back dark and there is no way to
 tell that from a handle that merely went stale.
 
+Commands from several threads are safe: the reopen happens once, and a command that was already
+inside the old handle when another command replaced it is carried over rather than failing. Disposal
+is the one thing that still reaches you as itself — that is you letting go, not the device leaving.
+
 **What it will not do.** It reopens only the device at its own `DevicePath` — a device that came back
 on a different path is not provably the same hardware, since serial numbers are `null` on some
 platforms. It does not resurrect monitoring: `ObserveAsync` still ends on
