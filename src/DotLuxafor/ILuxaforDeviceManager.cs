@@ -3,23 +3,18 @@ namespace DotLuxafor;
 /// <summary>
 /// Discovers and opens Luxafor HID devices.
 /// </summary>
-public interface ILuxaforDeviceManager
+/// <remarks>
+/// Implement or fake <see cref="ILuxaforDeviceOpener"/> instead when all you need is a device to
+/// talk to; this interface is for code that chooses which device that is.
+/// </remarks>
+public interface ILuxaforDeviceManager : ILuxaforDeviceOpener
 {
 	/// <summary>
 	/// Tries to find and open the first connected Luxafor device.
 	/// Returns <c>null</c> if no device is found or cannot be opened.
 	/// </summary>
-	/// <remarks>Use <see cref="Open()"/> to find out which of the two happened.</remarks>
+	/// <remarks>Use <see cref="ILuxaforDeviceOpener.Open"/> to find out which of the two happened.</remarks>
 	ILuxaforDevice? TryOpen();
-
-	/// <summary>
-	/// Tries to find and open the first connected Luxafor device, reporting why the attempt failed.
-	/// </summary>
-	/// <remarks>
-	/// "First" is whatever the platform enumerates first, which is not guaranteed to be stable
-	/// across replugs. Use <see cref="Open(string)"/> when it matters which device you get.
-	/// </remarks>
-	DeviceOpenResult Open();
 
 	/// <summary>
 	/// Opens the device at a specific path, reporting why the attempt failed.
@@ -76,13 +71,35 @@ public interface ILuxaforDeviceManager
 	bool IsDevicePresent();
 
 	/// <summary>
+	/// Gets whether one particular device is still attached, without opening it.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// This is the liveness check <see cref="ILuxaforConnection.IsConnected"/> is not: it asks the
+	/// operating system what is attached right now, so a device unplugged since it was opened
+	/// reports <c>false</c> here while the open handle still claims to be fine.
+	/// </para>
+	/// <para>
+	/// It costs a device enumeration, which is why it is a method on the manager rather than a
+	/// property on the device — call it when a stale answer would cost you something (before a
+	/// command that must not silently do nothing, or on a reconnect timer), not in a loop.
+	/// </para>
+	/// </remarks>
+	/// <param name="descriptor">
+	/// The device to look for, normally <see cref="ILuxaforConnection.Descriptor"/> of an open device.
+	/// </param>
+	/// <exception cref="ArgumentNullException">Thrown when <paramref name="descriptor"/> is <c>null</c>.</exception>
+	bool IsPresent(LuxaforDeviceDescriptor descriptor);
+
+	/// <summary>
 	/// Waits until a Luxafor device is attached to the machine, returning immediately if one
-	/// already is. The device is not opened — call <see cref="Open()"/> afterwards.
+	/// already is. The device is not opened — call <see cref="ILuxaforDeviceOpener.Open"/> afterwards.
 	/// </summary>
 	/// <remarks>
 	/// Driven by the operating system's hotplug notifications rather than polling. A device that is
 	/// attached but cannot be opened (for example because a permission is missing) still satisfies
-	/// this wait, so callers must not retry <see cref="Open()"/> in a tight loop on that result.
+	/// this wait, so callers must not retry <see cref="ILuxaforDeviceOpener.Open"/> in a tight loop on
+	/// that result.
 	/// </remarks>
 	/// <param name="cancellationToken">Cancellation token.</param>
 	/// <exception cref="OperationCanceledException">Thrown when the token is cancelled first.</exception>

@@ -63,6 +63,15 @@ public static class LuxaforDevices
 	public static bool IsDevicePresent() => Manager.IsDevicePresent();
 
 	/// <summary>
+	/// Gets whether one particular device is still attached, without opening it.
+	/// </summary>
+	/// <remarks>
+	/// The liveness check <see cref="ILuxaforConnection.IsConnected"/> is not, at the cost of a
+	/// device enumeration. See <see cref="ILuxaforDeviceManager.IsPresent"/>.
+	/// </remarks>
+	public static bool IsPresent(LuxaforDeviceDescriptor descriptor) => Manager.IsPresent(descriptor);
+
+	/// <summary>
 	/// Waits until a Luxafor device is attached to the machine, returning immediately if one
 	/// already is. The device is not opened — call <see cref="Open()"/> afterwards.
 	/// </summary>

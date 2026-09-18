@@ -54,6 +54,11 @@ public sealed class LuxaforDevice : ILuxaforDevice
 	}
 
 	/// <inheritdoc />
+	/// <remarks>
+	/// Backed by the HID stream's own flag, which is why this cannot see an unplugged device: the
+	/// flag is about the handle, and pulling the cable does not close it. See the interface for
+	/// what does notice.
+	/// </remarks>
 	public bool IsConnected
 	{
 		get

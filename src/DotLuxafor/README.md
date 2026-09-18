@@ -210,7 +210,8 @@ public class StatusService(ILuxaforDeviceManager manager)
 
 | Service | Lifetime | Registered by | Description |
 |---------|----------|---------------|-------------|
-| `ILuxaforDeviceManager` | Singleton | both | Device discovery (TryOpen, Open, OpenAll, IsDevicePresent, WaitForDeviceAsync) |
+| `ILuxaforDeviceManager` | Singleton | both | Device discovery (TryOpen, Open, OpenAll, List, IsDevicePresent, IsPresent, WaitForDeviceAsync) |
+| `ILuxaforDeviceOpener` | Singleton | both | The same manager, narrowed to `Open()` — depend on this when you do not choose the device |
 | `IOptions<LuxaforOptions>` | Singleton | both | Configuration options |
 | `ILuxaforDeviceAccessor` | Singleton | `AddLuxaforHostedService` | Access to the device the background service holds open |
 
@@ -290,6 +291,9 @@ foreach (var d in LuxaforDevices.List())
 
 // Check without opening
 bool present = LuxaforDevices.IsDevicePresent();
+
+// Check whether one particular device is still attached
+bool stillThere = LuxaforDevices.IsPresent(device.Descriptor!);
 
 // Wait for one to be plugged in (hotplug-driven, not polling)
 await LuxaforDevices.WaitForDeviceAsync(cancellationToken);
@@ -390,6 +394,22 @@ A device that *you* disposed throws `ObjectDisposedException` instead: that says
 of the device, not that the hardware left. While monitoring, the same event arrives as
 `LuxaforEvent.Disconnected` rather than as an exception.
 
+`IsConnected` will *not* tell you: it reports whether the handle was closed, and an unplugged device
+does not close it. To find out before sending a command, ask the manager:
+
+```csharp
+if (device.Descriptor is not null && !manager.IsPresent(device.Descriptor))
+{
+    device.Dispose();
+    device = manager.Open(device.Descriptor).Device;
+}
+```
+
+The reliable pattern is to act on the exception rather than to poll: catch
+`LuxaforDeviceDisconnectedException`, dispose the handle, reopen through `ex.Descriptor` and repeat
+the command — otherwise the command is lost until whatever drives the device next comes round.
+`AddLuxaforHostedService` does this for the device it holds, on its reconnect timer.
+
 ## API Reference
 
 ### Interfaces
@@ -413,11 +433,16 @@ has been disposed — see [When a device goes away mid-use](#when-a-device-goes-
 
 | Member | Description |
 |--------|-------------|
-| `IsConnected` | Whether the device connection is active |
+| `IsConnected` | Whether this handle is still usable — **not** whether the device is plugged in |
 | `Descriptor` | How the device was identified when opened, or `null` if not opened via the manager |
 | `DeviceInfo` | Device type and serial, or `null` until identified |
 | `LastColor` | The color this library last set the whole device to, or `null` when unknown |
 | `RequestDeviceInfoAsync(ct)` | Fills `DeviceInfo` with the device type and serial number |
+
+`IsConnected` reports the handle, not the hardware: nothing polls the USB bus, so a device whose
+cable was pulled goes on reporting `true` until something touches it. Read it as "we have not closed
+this". To ask whether the device is still there, call `manager.IsPresent(device.Descriptor)` — see
+[When a device goes away mid-use](#when-a-device-goes-away-mid-use).
 
 `LastColor` is set by `SetColorAsync` and `FadeToAsync` when they target `LedTarget.All`. It is
 `null` before the first such command, after a per-LED command, and after a strobe, wave or pattern —
@@ -436,10 +461,50 @@ library sent, not a reading from the device: the hardware cannot be asked what i
 | `OpenAll()` | Opens every connected device, skipping any that will not open |
 | `OpenAllResults()` | Opens every connected device, reporting the outcome of each attempt |
 | `IsDevicePresent()` | Whether a device is attached, without opening it |
+| `IsPresent(descriptor)` | Whether **that** device is still attached, without opening it |
 | `WaitForDeviceAsync(ct)` | Waits until a device is attached; does not open it |
 
 `WaitForDeviceAsync` is satisfied by a device that is attached but cannot be opened, so do not use
 it to drive a retry loop around a failing `Open()`.
+
+`IsPresent` costs a device enumeration, so call it where a stale answer would cost you something —
+before a command that must not silently do nothing, or on a reconnect timer — not in a loop.
+
+#### ILuxaforDeviceOpener
+
+`ILuxaforDeviceManager` inherits from it, and both resolve to the same singleton from DI.
+
+| Method | Description |
+|--------|-------------|
+| `Open()` | Opens a device, reporting why the attempt failed |
+
+Most of `ILuxaforDeviceManager` is about *choosing* between devices. Code that only wants something
+to light up can depend on this instead, and a test double is one method rather than nine:
+
+```csharp
+public class StatusService(ILuxaforDeviceOpener opener, ILogger<StatusService> logger)
+{
+    public async Task SetBusyAsync(CancellationToken ct)
+    {
+        var result = opener.Open();
+        if (!result.IsSuccess)
+        {
+            logger.LogWarning("{Reason}", result.Description);
+            return;
+        }
+
+        using var device = result.Device!;
+        await device.SetColorAsync(LuxaforColor.Red, cancellationToken: ct);
+    }
+}
+
+// In a test:
+var opener = new Mock<ILuxaforDeviceOpener>();
+opener.Setup(o => o.Open()).Returns(DeviceOpenResult.Opened(fakeDevice, descriptor));
+```
+
+`DeviceOpenResult`'s factory methods — `Opened`, `NotFound`, `NotMatched`, `Failure` — are public
+precisely so an implementation outside the library can return one.
 
 #### ILuxaforDeviceAccessor
 
