@@ -16,6 +16,12 @@ namespace DotLuxafor;
 /// that has already begun. Once a command reaches the device it always runs to completion, and it
 /// stays in effect until the next command replaces it.
 /// </para>
+/// <para>
+/// A device that has been unplugged fails every command with
+/// <see cref="LuxaforDeviceDisconnectedException"/>, whether it went away before the write or
+/// during it. One that the caller has disposed throws <see cref="ObjectDisposedException"/>
+/// instead, because that says the caller let go of the device rather than that the hardware left.
+/// </para>
 /// </remarks>
 public interface ILuxaforCommands
 {
@@ -25,6 +31,8 @@ public interface ILuxaforCommands
 	/// <param name="color">The color to set.</param>
 	/// <param name="target">Which LED(s) to target. Defaults to all LEDs.</param>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task SetColorAsync(LuxaforColor color, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -34,6 +42,8 @@ public interface ILuxaforCommands
 	/// <param name="speed">Fade speed (0 = instant, 255 = slowest).</param>
 	/// <param name="target">Which LED(s) to target. Defaults to all LEDs.</param>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task FadeToAsync(LuxaforColor color, byte speed, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -44,6 +54,8 @@ public interface ILuxaforCommands
 	/// <param name="repeat">Number of repetitions (0 = repeat indefinitely until next command).</param>
 	/// <param name="target">Which LED(s) to target. Defaults to all LEDs.</param>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task StrobeAsync(LuxaforColor color, byte speed, byte repeat, LedTarget target = LedTarget.All, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -54,6 +66,8 @@ public interface ILuxaforCommands
 	/// <param name="speed">Wave speed (0 = fastest, 255 = slowest).</param>
 	/// <param name="repeat">Number of repetitions (0 = repeat indefinitely until next command).</param>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task WaveAsync(WaveType type, LuxaforColor color, byte speed, byte repeat, CancellationToken cancellationToken = default);
 
 	/// <summary>
@@ -62,11 +76,15 @@ public interface ILuxaforCommands
 	/// <param name="pattern">The pattern to play.</param>
 	/// <param name="repeat">Number of repetitions (0 = repeat indefinitely until next command).</param>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task PlayPatternAsync(BuiltInPattern pattern, byte repeat, CancellationToken cancellationToken = default);
 
 	/// <summary>
 	/// Turns off all LEDs.
 	/// </summary>
 	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="LuxaforDeviceDisconnectedException">Thrown when the device is no longer connected.</exception>
+	/// <exception cref="ObjectDisposedException">Thrown when the device has been disposed.</exception>
 	Task TurnOffAsync(CancellationToken cancellationToken = default);
 }

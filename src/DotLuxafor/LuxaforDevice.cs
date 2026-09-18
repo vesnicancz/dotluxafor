@@ -329,11 +329,22 @@ public sealed class LuxaforDevice : ILuxaforDevice
 
 			if (!_stream.CanWrite)
 			{
-				throw new InvalidOperationException("Device is not connected.");
+				throw new LuxaforDeviceDisconnectedException(Descriptor, null);
 			}
 
 			byte[] report = new byte[] { 0x00, command, param1, param2, param3, param4, param5, param6, 0x00 };
-			_stream.Write(report);
+
+			try
+			{
+				_stream.Write(report);
+			}
+			catch (IOException ex)
+			{
+				// A device unplugged mid-write surfaces as an IOException from the HID stack. The
+				// caller should not have to know that: whether it went away just before the write
+				// or during it, the device is gone either way, so both report it the same.
+				throw new LuxaforDeviceDisconnectedException(Descriptor, ex);
+			}
 		}
 		finally
 		{

@@ -188,6 +188,79 @@ public class DependencyInjectionTests
 	}
 
 	[Fact]
+	public void LuxaforOptionsValidator_RejectsTwoDeviceSelectors()
+	{
+		var services = new ServiceCollection();
+		services.AddLuxafor(opts =>
+		{
+			opts.DevicePath = "/dev/hidraw0";
+			opts.SerialNumber = "1001";
+		});
+		var provider = services.BuildServiceProvider();
+
+		var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<LuxaforOptions>>();
+
+		// Resolving precedence silently would leave one of the two configured selectors ignored.
+		var ex = Assert.Throws<Microsoft.Extensions.Options.OptionsValidationException>(() => options.Value);
+		Assert.Contains(nameof(LuxaforOptions.DevicePath), ex.Message);
+		Assert.Contains(nameof(LuxaforOptions.SerialNumber), ex.Message);
+	}
+
+	/// <summary>
+	/// An unset configuration key binds to an empty string, which matches no device — it would
+	/// otherwise look exactly like a device nobody ever plugged in.
+	/// </summary>
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public void LuxaforOptionsValidator_RejectsAnEmptySelector(bool byPath)
+	{
+		var services = new ServiceCollection();
+		services.AddLuxafor(opts =>
+		{
+			if (byPath)
+			{
+				opts.DevicePath = string.Empty;
+			}
+			else
+			{
+				opts.SerialNumber = string.Empty;
+			}
+		});
+		var provider = services.BuildServiceProvider();
+
+		var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<LuxaforOptions>>();
+
+		Assert.Throws<Microsoft.Extensions.Options.OptionsValidationException>(() => options.Value);
+	}
+
+	[Fact]
+	public void LuxaforOptionsValidator_AcceptsOneDeviceSelector()
+	{
+		var services = new ServiceCollection();
+		services.AddLuxafor(opts => opts.SerialNumber = "1001");
+		var provider = services.BuildServiceProvider();
+
+		var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<LuxaforOptions>>();
+
+		Assert.Equal("1001", options.Value.SerialNumber);
+	}
+
+	[Fact]
+	public void LuxaforOptionsValidator_AcceptsNoDeviceSelector()
+	{
+		var services = new ServiceCollection();
+		services.AddLuxafor();
+		var provider = services.BuildServiceProvider();
+
+		var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<LuxaforOptions>>();
+
+		Assert.Null(options.Value.DevicePath);
+		Assert.Null(options.Value.SerialNumber);
+		Assert.Null(options.Value.SelectDevice);
+	}
+
+	[Fact]
 	public void AddLuxafor_WithoutHostedService_DoesNotRegisterAccessor()
 	{
 		var services = new ServiceCollection();

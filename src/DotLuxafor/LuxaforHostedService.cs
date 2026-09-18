@@ -24,6 +24,16 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 	private TaskCompletionSource<ILuxaforDevice> _deviceReady = NewDeviceReadySource();
 	private Task? _monitorTask;
 	private DeviceOpenStatus? _lastOpenFailure;
+	private OpenFailure? _lastFailureKind;
+
+	/// <summary>
+	/// Picks the configured device out of the attached ones, or <c>null</c> when no device was
+	/// configured and the first one found will do.
+	/// </summary>
+	private readonly Func<IReadOnlyList<LuxaforDeviceDescriptor>, LuxaforDeviceDescriptor?>? _selectDevice;
+
+	/// <summary>Names <see cref="_selectDevice"/> in a log message; <c>null</c> alongside it.</summary>
+	private readonly string? _selectorDescription;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="LuxaforHostedService"/> class.
@@ -36,6 +46,66 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 		_deviceManager = deviceManager;
 		_options = options.Value;
 		_logger = logger;
+		(_selectDevice, _selectorDescription) = BuildSelector(_options);
+	}
+
+	/// <summary>
+	/// Why the last attempt did not produce a device. Drives how long to wait before the next one
+	/// and how loudly to log, which the <see cref="DeviceOpenStatus"/> alone cannot: "nothing is
+	/// plugged in" and "the wrong thing is plugged in" are both <see cref="DeviceOpenStatus.NotFound"/>
+	/// and want opposite handling.
+	/// </summary>
+	private enum OpenFailure
+	{
+		/// <summary>No Luxafor is attached. Normal, and worth sleeping on the hotplug notification.</summary>
+		NoDeviceAttached,
+
+		/// <summary>Devices are attached, but none is the one <see cref="LuxaforOptions"/> asked for.</summary>
+		NoDeviceMatched,
+
+		/// <summary>The chosen device is attached but would not open.</summary>
+		OpenFailed
+	}
+
+	/// <summary>
+	/// Turns the device-selection options into one predicate, plus the phrase that names it in a
+	/// log message. Returns <c>(null, null)</c> when none was configured, which means "whatever the
+	/// platform enumerates first".
+	/// </summary>
+	/// <remarks>
+	/// Built once rather than per attempt, and only ever one of the three: the options validator
+	/// rejects a combination, so the order they are tested in here never decides anything.
+	/// </remarks>
+	private static (Func<IReadOnlyList<LuxaforDeviceDescriptor>, LuxaforDeviceDescriptor?>?, string?) BuildSelector(LuxaforOptions options)
+	{
+		if (options.SelectDevice != null)
+		{
+			return (options.SelectDevice, $"the {nameof(LuxaforOptions.SelectDevice)} callback");
+		}
+
+		if (options.DevicePath != null)
+		{
+			var path = options.DevicePath;
+
+			// Ordinal, because this is matched against a path the platform produced, and a device
+			// path is not text to be compared by any culture's rules.
+			return (
+				devices => devices.FirstOrDefault(d => string.Equals(d.DevicePath, path, StringComparison.Ordinal)),
+				$"device path '{path}'");
+		}
+
+		if (options.SerialNumber != null)
+		{
+			var serial = options.SerialNumber;
+
+			// Ignoring case, because a serial number gets copied out of a label or a log by hand
+			// and its hex digits are as likely to arrive in one case as the other.
+			return (
+				devices => devices.FirstOrDefault(d => string.Equals(d.SerialNumber, serial, StringComparison.OrdinalIgnoreCase)),
+				$"serial number '{serial}'");
+		}
+
+		return (null, null);
 	}
 
 	/// <summary>
@@ -78,11 +148,12 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 				if (device == null || !device.IsConnected)
 				{
 					await CleanupDeviceAsync().ConfigureAwait(false);
-					var openResult = _deviceManager.Open();
+					var openResult = OpenConfiguredDevice(out var failure);
 
 					if (openResult.Device != null)
 					{
 						_lastOpenFailure = null;
+						_lastFailureKind = null;
 						SetDevice(openResult.Device);
 						_logger.LogInformation("Luxafor device connected.");
 
@@ -93,7 +164,7 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 					}
 					else
 					{
-						LogOpenFailure(openResult);
+						LogOpenFailure(openResult, failure);
 					}
 				}
 
@@ -117,17 +188,60 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 	}
 
 	/// <summary>
+	/// Opens the device <see cref="LuxaforOptions"/> asks for: the one the configured selector
+	/// picks, or whatever the platform enumerates first when none is configured.
+	/// </summary>
+	/// <param name="failure">
+	/// Why the attempt did not produce a device. Meaningful only when the result carries none.
+	/// </param>
+	/// <remarks>
+	/// With a selector configured the attached devices are listed first, so that a device that is
+	/// present but not the wanted one can be told from nothing being present at all — the two need
+	/// different waits, and mistaking the first for the second spins the loop at full speed.
+	/// </remarks>
+	private DeviceOpenResult OpenConfiguredDevice(out OpenFailure failure)
+	{
+		if (_selectDevice is null)
+		{
+			var first = _deviceManager.Open();
+			failure = first.Status == DeviceOpenStatus.NotFound ? OpenFailure.NoDeviceAttached : OpenFailure.OpenFailed;
+			return first;
+		}
+
+		var attached = _deviceManager.List();
+		if (attached.Count == 0)
+		{
+			failure = OpenFailure.NoDeviceAttached;
+			return DeviceOpenResult.NotFound();
+		}
+
+		var chosen = _selectDevice(attached);
+		if (chosen is null)
+		{
+			failure = OpenFailure.NoDeviceMatched;
+			return DeviceOpenResult.NotMatched(_selectorDescription!, attached);
+		}
+
+		// Devices are attached, so this is never NoDeviceAttached however it turns out — not even
+		// when the chosen one reports NotFound because it was unplugged since the listing. The
+		// others are still here, so a hotplug wait would return at once and spin.
+		failure = OpenFailure.OpenFailed;
+		return _deviceManager.Open(chosen);
+	}
+
+	/// <summary>
 	/// Waits before the next connection attempt.
 	/// </summary>
 	/// <remarks>
 	/// When the last attempt found nothing plugged in, this sleeps on the operating system's hotplug
 	/// notification so plugging a device in is picked up at once instead of up to
-	/// <see cref="LuxaforOptions.ReconnectDelay"/> later. Every other outcome — including a device
-	/// that is present but refuses to open — falls back to the plain timer, because a device that is
-	/// already attached would satisfy the hotplug wait immediately and spin the loop.
+	/// <see cref="LuxaforOptions.ReconnectDelay"/> later. Every other outcome — a device that is
+	/// present but refuses to open, or one that is present but is not the configured one — falls
+	/// back to the plain timer, because a device that is already attached would satisfy the hotplug
+	/// wait immediately and spin the loop.
 	/// </remarks>
 	private Task WaitBeforeRetryAsync(CancellationToken stoppingToken)
-		=> _lastOpenFailure == DeviceOpenStatus.NotFound
+		=> _lastFailureKind == OpenFailure.NoDeviceAttached
 			? WaitForDeviceArrivalAsync(stoppingToken)
 			: Task.Delay(_options.ReconnectDelay, stoppingToken);
 
@@ -154,22 +268,34 @@ public sealed class LuxaforHostedService : BackgroundService, ILuxaforDeviceAcce
 	/// Logs why the device could not be opened. Reconnect attempts repeat on a timer,
 	/// so only a change of reason is logged to keep the log readable.
 	/// </summary>
-	private void LogOpenFailure(DeviceOpenResult result)
+	private void LogOpenFailure(DeviceOpenResult result, OpenFailure failure)
 	{
-		if (_lastOpenFailure == result.Status)
+		if (_lastOpenFailure == result.Status && _lastFailureKind == failure)
 		{
 			return;
 		}
 
 		_lastOpenFailure = result.Status;
+		_lastFailureKind = failure;
 
-		if (result.Status == DeviceOpenStatus.NotFound)
+		switch (failure)
 		{
-			_logger.LogDebug("{Reason}", result.Description);
-		}
-		else
-		{
-			_logger.LogWarning(result.Error, "{Reason}", result.Description);
+			case OpenFailure.NoDeviceAttached:
+				// Nothing is plugged in, which is an ordinary state for a service that waits for a
+				// device rather than something the user has to hear about.
+				_logger.LogDebug("{Reason}", result.Description);
+				break;
+
+			case OpenFailure.NoDeviceMatched:
+				// A configured selector matching nothing is far more likely a mistake in the
+				// configuration than a device someone has yet to plug in, so it is not hidden at
+				// Debug. The description names the devices that are attached.
+				_logger.LogWarning("{Reason}", result.Description);
+				break;
+
+			default:
+				_logger.LogWarning(result.Error, "{Reason}", result.Description);
+				break;
 		}
 	}
 

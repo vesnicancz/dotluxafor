@@ -255,9 +255,10 @@ public static class LuxaforAnimations
 				// The device was disposed inside the scope; there is nothing left to restore, and
 				// throwing here would mask whatever the scope body was doing.
 			}
-			catch (InvalidOperationException)
+			catch (LuxaforDeviceDisconnectedException)
 			{
-				// Same for a device that has since been unplugged.
+				// Same for a device that has since been unplugged. Only this one is swallowed —
+				// anything else the device reports is a real failure and belongs to the caller.
 			}
 		}
 	}

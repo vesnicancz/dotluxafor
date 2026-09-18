@@ -103,7 +103,7 @@ public sealed class DeviceService : IDisposable
         {
             await action(_device).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        catch (Exception ex) when (ex is LuxaforDeviceDisconnectedException or ObjectDisposedException)
         {
             Dispatcher.UIThread.Post(() => Log($"Command failed: {ex.Message}"));
         }
