@@ -10,6 +10,7 @@ public sealed class DeviceService : IDisposable
     private Timer? _reconnectTimer;
     private bool _autoReconnect;
     private bool _disposed;
+    private DeviceOpenStatus? _lastOpenFailure;
 
     public bool IsConnected => _device?.IsConnected == true;
 
@@ -33,10 +34,12 @@ public sealed class DeviceService : IDisposable
 
         if (_device is null)
         {
+            _lastOpenFailure = openResult.Status;
             Log(openResult.Description);
             return false;
         }
 
+        _lastOpenFailure = null;
         StartMonitoring(_device);
 
         _ = RequestDeviceInfoAsync(_device);
@@ -225,15 +228,29 @@ public sealed class DeviceService : IDisposable
 
                 StopMonitoring();
                 _device?.Dispose();
-                _device = new LuxaforDeviceManager().TryOpen();
+
+                var openResult = new LuxaforDeviceManager().Open();
+                _device = openResult.Device;
 
                 if (_device is not null)
                 {
+                    _lastOpenFailure = null;
                     StartMonitoring(_device);
                     _ = RequestDeviceInfoAsync(_device);
                     StopReconnectTimer();
                     Log("Reconnected");
                     OnStateChanged();
+                }
+                else if (_lastOpenFailure != openResult.Status)
+                {
+                    // The timer retries every 2s, so only a change of reason is worth
+                    // a log line. A device that is simply unplugged is not worth one at all.
+                    _lastOpenFailure = openResult.Status;
+
+                    if (openResult.Status != DeviceOpenStatus.NotFound)
+                    {
+                        Log(openResult.Description);
+                    }
                 }
             });
         }, null, 2000, 2000);
