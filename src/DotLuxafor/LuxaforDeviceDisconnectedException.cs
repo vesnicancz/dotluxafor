@@ -55,7 +55,29 @@ public sealed class LuxaforDeviceDisconnectedException : InvalidOperationExcepti
 	/// <summary>
 	/// Initializes a new instance naming the device that went away.
 	/// </summary>
-	internal LuxaforDeviceDisconnectedException(LuxaforDeviceDescriptor? descriptor, Exception? innerException)
+	/// <remarks>
+	/// <para>
+	/// This is the one the library itself throws, and it is public so that a caller can build the
+	/// same exception — which is what it takes to test handling of a disconnect, the very thing the
+	/// documentation tells callers to write. The other constructors leave
+	/// <see cref="Descriptor"/> <c>null</c>, so an exception from them does not stand in for a real
+	/// one: the descriptor is missing and the message does not name the device.
+	/// </para>
+	/// <para>
+	/// Passing two bare <c>null</c> literals is ambiguous with the
+	/// <see cref="LuxaforDeviceDisconnectedException(string, Exception)"/> overload; name the
+	/// argument (<c>descriptor: null</c>) or use the parameterless constructor, which is the same
+	/// thing.
+	/// </para>
+	/// </remarks>
+	/// <param name="descriptor">
+	/// What identified the device that went away, or <c>null</c> when it was not opened through
+	/// <see cref="ILuxaforDeviceManager"/>. It is named in <see cref="Exception.Message"/>.
+	/// </param>
+	/// <param name="innerException">
+	/// The error the HID stack reported, or <c>null</c> when the device was already known to be gone.
+	/// </param>
+	public LuxaforDeviceDisconnectedException(LuxaforDeviceDescriptor? descriptor, Exception? innerException)
 		: base(BuildMessage(descriptor), innerException)
 	{
 		Descriptor = descriptor;
