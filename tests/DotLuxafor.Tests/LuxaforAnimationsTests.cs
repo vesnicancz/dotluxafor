@@ -60,11 +60,17 @@ public class LuxaforAnimationsTests
         var ct = TestContext.Current.CancellationToken;
         using var device = CreateDevice();
 
-        await device.FadeOverAsync(LuxaforColor.Off, LuxaforColor.Red, TimeSpan.FromMilliseconds(200), cancellationToken: ct);
+        // A whole second, because the number of frames is not something the fade promises: it is
+        // driven by the clock and drops frames rather than running long, so a loaded machine can
+        // legitimately produce only the first and the last. Asserting a frame count would be
+        // asserting that the machine is idle. One second leaves room for a delay to overshoot
+        // fortyfold and still land a frame in the middle.
+        await device.FadeOverAsync(LuxaforColor.Off, LuxaforColor.Red, TimeSpan.FromSeconds(1), cancellationToken: ct);
 
         var colors = Colors();
-        Assert.True(colors.Count > 2, $"Expected several frames, got {colors.Count}.");
         Assert.Contains(colors, c => c.R > 0 && c.R < 255);
+
+        // These hold at any frame rate: nothing is ever sent off the line between the two colors.
         Assert.All(colors, c => Assert.Equal(0, c.G));
         Assert.All(colors, c => Assert.Equal(0, c.B));
     }
@@ -134,6 +140,7 @@ public class LuxaforAnimationsTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             device.FadeOverAsync(LuxaforColor.Off, LuxaforColor.Red, TimeSpan.FromSeconds(30), cancellationToken: cts.Token));
 
+        Assert.NotEmpty(Colors());
         Assert.NotEqual(LuxaforColor.Red, LastSent());
     }
 
