@@ -18,9 +18,20 @@ public interface ILuxaforDeviceManager
 	DeviceOpenResult Open();
 
 	/// <summary>
-	/// Opens all connected Luxafor devices.
+	/// Opens all connected Luxafor devices, skipping any that cannot be opened.
 	/// </summary>
+	/// <remarks>Use <see cref="OpenAllResults"/> to find out which ones were skipped, and why.</remarks>
 	IReadOnlyList<ILuxaforDevice> OpenAll();
+
+	/// <summary>
+	/// Opens all connected Luxafor devices, reporting the outcome of every attempt.
+	/// </summary>
+	/// <remarks>
+	/// One entry per attached device, in discovery order; an empty list means nothing is attached.
+	/// Devices that opened are owned by the caller, who is responsible for disposing them — including
+	/// when other entries in the list report a failure.
+	/// </remarks>
+	IReadOnlyList<DeviceOpenResult> OpenAllResults();
 
 	/// <summary>
 	/// Gets whether any Luxafor device is currently connected (without opening it).

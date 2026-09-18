@@ -41,15 +41,25 @@ public sealed class LuxaforDeviceManager : ILuxaforDeviceManager
 	public IReadOnlyList<ILuxaforDevice> OpenAll()
 	{
 		var devices = new List<ILuxaforDevice>();
-		foreach (var hidDevice in _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+		foreach (var result in OpenAllResults())
 		{
-			var result = OpenDevice(hidDevice);
 			if (result.Device != null)
 			{
 				devices.Add(result.Device);
 			}
 		}
 		return devices;
+	}
+
+	/// <inheritdoc />
+	public IReadOnlyList<DeviceOpenResult> OpenAllResults()
+	{
+		var results = new List<DeviceOpenResult>();
+		foreach (var hidDevice in _deviceListProvider.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+		{
+			results.Add(OpenDevice(hidDevice));
+		}
+		return results;
 	}
 
 	/// <summary>

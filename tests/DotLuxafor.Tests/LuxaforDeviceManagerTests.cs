@@ -89,6 +89,58 @@ public class LuxaforDeviceManagerTests
         _provider.Verify(p => p.GetDevices(0x04D8, 0xF372), Times.Once);
     }
 
+    #region OpenAllResults
+
+    [Fact]
+    public void OpenAllResults_NoDevices_ReturnsEmptyList()
+    {
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(Enumerable.Empty<HidDevice>());
+
+        Assert.Empty(CreateManager().OpenAllResults());
+    }
+
+    [Fact]
+    public void OpenAllResults_ReportsOneOutcomePerAttachedDevice()
+    {
+        // TryOpen on a bare mock fails, which is the case that OpenAll used to swallow entirely.
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(new[] { new Mock<HidDevice>().Object, new Mock<HidDevice>().Object });
+
+        var results = CreateManager().OpenAllResults();
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.False(r.IsSuccess));
+        Assert.All(results, r => Assert.NotEqual(DeviceOpenStatus.NotFound, r.Status));
+        Assert.All(results, r => Assert.False(string.IsNullOrWhiteSpace(r.Description)));
+    }
+
+    [Fact]
+    public void OpenAll_AndOpenAllResults_AgreeOnWhatOpened()
+    {
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(() => new[] { new Mock<HidDevice>().Object });
+
+        var manager = CreateManager();
+
+        Assert.Equal(
+            manager.OpenAllResults().Count(r => r.Device != null),
+            manager.OpenAll().Count);
+    }
+
+    [Fact]
+    public void OpenAllResults_QueriesCorrectVendorAndProductId()
+    {
+        _provider.Setup(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()))
+            .Returns(Enumerable.Empty<HidDevice>());
+
+        CreateManager().OpenAllResults();
+
+        _provider.Verify(p => p.GetDevices(0x04D8, 0xF372), Times.Once);
+    }
+
+    #endregion
+
     #region WaitForDeviceAsync
 
     private bool _devicePresent;

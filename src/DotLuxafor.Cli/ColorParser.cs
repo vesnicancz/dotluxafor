@@ -21,11 +21,6 @@ internal static class ColorParser
 			return named;
 		}
 
-		if (input.StartsWith('#'))
-		{
-			return LuxaforColor.FromHex(input);
-		}
-
 		if (input.Contains(','))
 		{
 			string[] parts = input.Split(',');
@@ -37,9 +32,14 @@ internal static class ColorParser
 				return new LuxaforColor(r, g, b);
 			}
 		}
+		// Accepts every spelling the library does, so the CLI is not stricter than the API.
+		else if (LuxaforColor.TryFromHex(input, out LuxaforColor hex))
+		{
+			return hex;
+		}
 
 		throw new FormatException(
 			$"Invalid color: '{input}'. Use a named color (red, green, blue, yellow, cyan, magenta, white, off), " +
-			"hex (#FF0000), or RGB (255,0,0).");
+			"hex (#FF0000, FF0000 or #F00), or RGB (255,0,0).");
 	}
 }
