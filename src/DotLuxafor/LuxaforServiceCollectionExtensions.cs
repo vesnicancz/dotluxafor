@@ -43,6 +43,8 @@ public static class LuxaforServiceCollectionExtensions
 	/// <summary>
 	/// Adds Luxafor device services with a background hosted service that handles
 	/// auto-reconnection and automatic monitoring based on <see cref="LuxaforOptions"/>.
+	/// Also registers <see cref="ILuxaforDeviceAccessor"/>, which is how application code
+	/// reaches the device the background service holds open.
 	/// </summary>
 	/// <param name="services">The service collection.</param>
 	/// <param name="configure">Action to configure <see cref="LuxaforOptions"/>.</param>
@@ -50,7 +52,12 @@ public static class LuxaforServiceCollectionExtensions
 	public static IServiceCollection AddLuxaforHostedService(this IServiceCollection services, Action<LuxaforOptions> configure)
 	{
 		services.AddLuxafor(configure);
-		services.AddHostedService<LuxaforHostedService>();
+
+		// Registered as a singleton in its own right and then handed to the host, so that the
+		// accessor and the running background service are one and the same instance.
+		services.TryAddSingleton<LuxaforHostedService>();
+		services.TryAddSingleton<ILuxaforDeviceAccessor>(sp => sp.GetRequiredService<LuxaforHostedService>());
+		services.AddHostedService(sp => sp.GetRequiredService<LuxaforHostedService>());
 		return services;
 	}
 }

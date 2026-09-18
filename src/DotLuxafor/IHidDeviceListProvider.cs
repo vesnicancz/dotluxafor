@@ -9,4 +9,11 @@ namespace DotLuxafor;
 internal interface IHidDeviceListProvider
 {
 	IEnumerable<HidDevice> GetDevices(int vendorId, int productId);
+
+	/// <summary>
+	/// Subscribes to changes in the set of attached devices. The handler carries no payload:
+	/// the underlying notification does not say what changed, so callers re-query.
+	/// </summary>
+	/// <returns>A subscription; disposing it stops the notifications.</returns>
+	IDisposable SubscribeToChanges(Action handler);
 }

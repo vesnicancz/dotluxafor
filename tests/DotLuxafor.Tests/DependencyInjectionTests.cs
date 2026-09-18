@@ -142,4 +142,60 @@ public class DependencyInjectionTests
 		var hostedServices = provider.GetServices<Microsoft.Extensions.Hosting.IHostedService>();
 		Assert.Contains(hostedServices, s => s is LuxaforHostedService);
 	}
+
+	[Fact]
+	public void AddLuxaforHostedService_RegistersAccessor()
+	{
+		var services = new ServiceCollection();
+		services.AddLogging();
+
+		services.AddLuxaforHostedService(opts => opts.AutoReconnect = true);
+		var provider = services.BuildServiceProvider();
+
+		Assert.NotNull(provider.GetService<ILuxaforDeviceAccessor>());
+	}
+
+	[Fact]
+	public void AddLuxaforHostedService_AccessorIsTheRunningHostedService()
+	{
+		var services = new ServiceCollection();
+		services.AddLogging();
+
+		services.AddLuxaforHostedService(opts => opts.AutoReconnect = true);
+		var provider = services.BuildServiceProvider();
+
+		var accessor = provider.GetRequiredService<ILuxaforDeviceAccessor>();
+		var hosted = provider.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
+			.OfType<LuxaforHostedService>()
+			.Single();
+
+		// An accessor pointing at a second, never-started instance would always report no device.
+		Assert.Same(hosted, accessor);
+		Assert.Same(hosted, provider.GetRequiredService<LuxaforHostedService>());
+	}
+
+	[Fact]
+	public void AddLuxaforHostedService_CalledTwice_RegistersOneInstance()
+	{
+		var services = new ServiceCollection();
+		services.AddLogging();
+
+		services.AddLuxaforHostedService(opts => opts.AutoReconnect = true);
+		services.AddLuxaforHostedService(opts => opts.AutoMonitor = true);
+		var provider = services.BuildServiceProvider();
+
+		Assert.Single(provider.GetServices<Microsoft.Extensions.Hosting.IHostedService>().OfType<LuxaforHostedService>());
+	}
+
+	[Fact]
+	public void AddLuxafor_WithoutHostedService_DoesNotRegisterAccessor()
+	{
+		var services = new ServiceCollection();
+
+		services.AddLuxafor();
+		var provider = services.BuildServiceProvider();
+
+		// Nothing owns a device, so there is nothing for an accessor to expose.
+		Assert.Null(provider.GetService<ILuxaforDeviceAccessor>());
+	}
 }

@@ -89,6 +89,104 @@ public class LuxaforDeviceManagerTests
         _provider.Verify(p => p.GetDevices(0x04D8, 0xF372), Times.Once);
     }
 
+    #region WaitForDeviceAsync
+
+    private bool _devicePresent;
+    private Action? _notifyChanged;
+    private readonly Mock<IDisposable> _subscription = new();
+
+    /// <summary>
+    /// Builds a manager whose device presence follows <see cref="_devicePresent"/> and whose
+    /// change notification is fired by calling <see cref="_notifyChanged"/>.
+    /// </summary>
+    private LuxaforDeviceManager CreateHotplugManager()
+    {
+        _provider.Setup(p => p.GetDevices(LuxaforDevice.VendorId, LuxaforDevice.ProductId))
+            .Returns(() => _devicePresent
+                ? new[] { new Mock<HidDevice>().Object }
+                : Enumerable.Empty<HidDevice>());
+
+        _provider.Setup(p => p.SubscribeToChanges(It.IsAny<Action>()))
+            .Returns((Action handler) =>
+            {
+                _notifyChanged = handler;
+                return _subscription.Object;
+            });
+
+        return new LuxaforDeviceManager(_provider.Object);
+    }
+
+    [Fact]
+    public async Task WaitForDeviceAsync_WhenDeviceAlreadyPresent_CompletesWithoutSubscribing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _devicePresent = true;
+
+        await CreateHotplugManager().WaitForDeviceAsync(ct);
+
+        _provider.Verify(p => p.SubscribeToChanges(It.IsAny<Action>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task WaitForDeviceAsync_CompletesWhenADeviceArrives()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var waiting = CreateHotplugManager().WaitForDeviceAsync(ct);
+
+        Assert.False(waiting.IsCompleted);
+
+        _devicePresent = true;
+        _notifyChanged!();
+
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10), ct);
+        _subscription.Verify(d => d.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task WaitForDeviceAsync_IgnoresChangesThatBringNoLuxafor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var waiting = CreateHotplugManager().WaitForDeviceAsync(ct);
+
+        // The notification fires for every HID device on the machine, not just ours.
+        _notifyChanged!();
+        _notifyChanged!();
+
+        Assert.False(waiting.IsCompleted);
+
+        _devicePresent = true;
+        _notifyChanged!();
+
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10), ct);
+    }
+
+    [Fact]
+    public async Task WaitForDeviceAsync_WhenCancelled_ThrowsAndUnsubscribes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var waiting = CreateHotplugManager().WaitForDeviceAsync(cts.Token);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        _subscription.Verify(d => d.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task WaitForDeviceAsync_WhenAlreadyCancelled_ThrowsWithoutQuerying()
+    {
+        var manager = CreateHotplugManager();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => manager.WaitForDeviceAsync(cts.Token));
+
+        _provider.Verify(p => p.GetDevices(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    #endregion
+
     [Fact]
     public void DefaultConstructor_DoesNotThrow()
     {

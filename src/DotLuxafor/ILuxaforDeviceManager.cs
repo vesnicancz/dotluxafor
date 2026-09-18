@@ -26,4 +26,17 @@ public interface ILuxaforDeviceManager
 	/// Gets whether any Luxafor device is currently connected (without opening it).
 	/// </summary>
 	bool IsDevicePresent();
+
+	/// <summary>
+	/// Waits until a Luxafor device is attached to the machine, returning immediately if one
+	/// already is. The device is not opened — call <see cref="Open"/> afterwards.
+	/// </summary>
+	/// <remarks>
+	/// Driven by the operating system's hotplug notifications rather than polling. A device that is
+	/// attached but cannot be opened (for example because a permission is missing) still satisfies
+	/// this wait, so callers must not retry <see cref="Open"/> in a tight loop on that result.
+	/// </remarks>
+	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <exception cref="OperationCanceledException">Thrown when the token is cancelled first.</exception>
+	Task WaitForDeviceAsync(CancellationToken cancellationToken = default);
 }
